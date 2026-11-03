@@ -151,10 +151,29 @@ if command -v xorriso >/dev/null 2>&1; then
   listing="$(xorriso -indev "$IMAGE" -find /arch/boot -maxdepth 2 -type f 2>/dev/null || true)"
   grep -q 'vmlinuz' <<<"$listing" || die "no kernel in the image"
   grep -q 'initramfs' <<<"$listing" || die "no initramfs in the image"
-  xorriso -indev "$IMAGE" -find /opt/arch-installer -maxdepth 2 -type f 2>/dev/null | grep -q '__main__.py' \
-    || die "the installer is not inside the image"
-  grep -q 'uefi' <<<"$(xorriso -indev "$IMAGE" -report_el_torito plain 2>/dev/null || true)" \
+  grep -qi 'uefi' <<<"$(xorriso -indev "$IMAGE" -report_el_torito plain 2>/dev/null || true)" \
     || warn "the image reports no UEFI boot entry"
+  grep -qi 'bios' <<<"$(xorriso -indev "$IMAGE" -report_el_torito plain 2>/dev/null || true)" \
+    || warn "the image reports no BIOS boot entry"
+
+  # The installer is inside the squashfs, not in the ISO directory tree: the
+  # ISO only carries /arch/x86_64/airootfs.sfs and the boot files.  Check the
+  # live root itself, which is what the medium actually runs.
+  rootfs="$WORK_DIR/mkarchiso/iso/arch/x86_64/airootfs.sfs"
+  [[ -f "$rootfs" ]] || rootfs="$(find "$WORK_DIR" -name 'airootfs.sfs' -print -quit 2>/dev/null || true)"
+  if [[ -n "$rootfs" && -f "$rootfs" ]] && command -v unsquashfs >/dev/null 2>&1; then
+    live_listing="$(unsquashfs -l "$rootfs" 2>/dev/null || true)"
+    grep -q 'opt/arch-installer/installer/__main__.py' <<<"$live_listing" \
+      || die "the installer is not inside the live root"
+    grep -q 'usr/local/bin/arch-installer-gui' <<<"$live_listing" \
+      || die "the installer launcher is not inside the live root"
+    grep -q 'opt/arch-installer/panel/app.py' <<<"$live_listing" \
+      || die "the control panel is not inside the live root"
+    grep -q 'etc/systemd/system/getty@tty1.service.d/autologin.conf' <<<"$live_listing" \
+      || die "the autologin that starts the installer at boot is missing"
+  else
+    warn "the live root could not be inspected; the image was not fully verified"
+  fi
 fi
 
 log "done: $IMAGE ($(du -h "$IMAGE" | cut -f1))"
