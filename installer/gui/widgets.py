@@ -24,8 +24,11 @@ class ScrollArea(tk.Frame):
         )
         self.canvas.configure(yscrollcommand=self._on_scroll)
         self.canvas.grid(row=0, column=0, sticky="nsew")
+        # The scrollbar stays in place.  Showing and hiding it from inside the
+        # scroll callback changes the canvas width, which changes the wrapped
+        # text height, which toggles the scrollbar again: a geometry loop that
+        # never settles and leaves Tk spinning in its idle handler.
         self.scrollbar.grid(row=0, column=1, sticky="ns")
-        self.scrollbar.grid_remove()
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
@@ -45,14 +48,6 @@ class ScrollArea(tk.Frame):
 
     def _on_scroll(self, first: str, last: str) -> None:
         self.scrollbar.set(first, last)
-        try:
-            full = float(first) <= 0.0001 and float(last) >= 0.9999
-        except (TypeError, ValueError):
-            full = True
-        if full:
-            self.scrollbar.grid_remove()
-        else:
-            self.scrollbar.grid()
 
     def _wheel_on(self, _event: tk.Event | None = None) -> None:
         for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
@@ -379,7 +374,9 @@ def _follow_width(label: tk.Label) -> None:
 
     def resize(event: tk.Event) -> None:
         width = int(getattr(event, "width", 0))
-        if width < 60 or width == state[0]:
+        # Ignore sub-pixel churn: reacting to every pixel of a resize makes the
+        # label's height oscillate against the container that sized it.
+        if width < 60 or abs(width - state[0]) < 8:
             return
         state[0] = width
         try:
