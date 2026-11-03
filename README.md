@@ -5,6 +5,9 @@ that manages the installed system afterwards. Both are native desktop
 applications (Python + Tk) — no browser, no local web server, nothing listening
 on a port.
 
+**[Download the installer image](https://github.com/shelbycountyfc-rgb/arch-gui-installer/releases/latest)**
+— built by CI and attached to the release together with its SHA-256 checksum.
+
 The installer follows the [official installation guide](https://wiki.archlinux.org/title/Installation_guide)
 step for step: partition, format, mount, `pacstrap`, `genfstab`, `arch-chroot`
 configuration, boot loader. You end up with a normal Arch system, maintained with
