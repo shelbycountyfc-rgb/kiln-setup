@@ -102,6 +102,13 @@ seed_boot_configs() {
     | while read -r menu; do
         sed -i 's/Arch Linux install medium/Arch Linux GUI installer/g' "$menu"
       done
+  # Keep the kernel messages. With 'quiet' a boot that ends in the emergency
+  # shell looks like a blank screen, and this medium has to be usable for
+  # finding out what went wrong.
+  { grep -rl 'quiet' "$PROFILE/efiboot" "$PROFILE/syslinux" 2>/dev/null || true; } \
+    | while read -r menu; do
+        sed -i 's/ quiet//g' "$menu"
+      done
   [[ -d "$PROFILE/efiboot/loader/entries" ]] \
     || die "efiboot/loader/entries is missing from the profile"
   [[ -f "$PROFILE/syslinux/syslinux.cfg" ]] \
