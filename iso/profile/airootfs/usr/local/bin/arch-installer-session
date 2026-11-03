@@ -1,0 +1,27 @@
+#!/bin/sh
+# Start the installer window on the console.
+#
+# There is no window manager and no desktop session.  The Tk window draws its
+# own layout, and with nothing else running it keeps the input focus.  If X
+# cannot start, the console gets a root shell instead of a black screen.
+
+export XCURSOR_THEME=Adwaita
+export XCURSOR_SIZE=24
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+
+if ! command -v Xorg >/dev/null 2>&1; then
+  echo "Xorg is not installed on this medium; falling back to a shell." >&2
+  exec /bin/bash -l
+fi
+
+echo "Starting the Arch Linux installer..."
+if ! xinit /root/.xinitrc -- :0 vt1 -keeptty -nolisten tcp; then
+  echo
+  echo "The installer window could not start (X server exit)."
+  echo "The installation can also be done by hand; a root shell follows."
+  exec /bin/bash -l
+fi
+
+# The window closed normally: give the console back so the medium stays usable.
+exec /bin/bash -l

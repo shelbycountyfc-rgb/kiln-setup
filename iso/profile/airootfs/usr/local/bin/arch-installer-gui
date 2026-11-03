@@ -1,0 +1,8 @@
+#!/bin/sh
+# The X client of the live medium: the installer window, full screen.
+
+PYTHONPATH=/opt/arch-installer
+export PYTHONPATH
+
+cd /opt/arch-installer || exit 1
+exec /usr/bin/python3 -m installer --kiosk

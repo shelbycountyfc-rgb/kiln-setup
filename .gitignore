@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.iso
+*.iso.sha256
+out/
+.build/
+*.log

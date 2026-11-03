@@ -1,0 +1,2 @@
+# Never offered to the browser: this is a local kiosk window.
+# (Placed so mkarchiso keeps /etc/xdg when the profile grows.)
