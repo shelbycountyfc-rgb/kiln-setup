@@ -22,8 +22,6 @@ from installer.gui.widgets import (
     fit_labels,
     hint,
 )
-from installer.options import KEYMAPS, LOCALES, TIMEZONES
-
 from . import core
 
 GIB = 1024 ** 3

@@ -10,9 +10,9 @@ from . import APP_NAME, __version__
 
 def _check() -> int:
     from . import core
-    from installer.context import Context, Logger, human_bytes
+    from installer.context import Logger, human_bytes
 
-    ctx = Context(Logger(None))
+    ctx = core.PanelContext(Logger(None))
     total, available = core.memory()
     disk_total, disk_used, disk_free = core.disk_usage("/")
     release = core.os_release()
