@@ -113,10 +113,16 @@ seed_boot_configs
 log "installing the Python installer into the live root"
 mkdir -p "$PROFILE/airootfs/opt/arch-installer"
 cp -a "$REPO_ROOT/installer" "$PROFILE/airootfs/opt/arch-installer/"
+# The panel shares the installer's theme, catalogue and pacman helpers, and is
+# copied into the installed system during the finish phase: it has to be on the
+# medium even though it is not what the medium runs.
+cp -a "$REPO_ROOT/panel" "$PROFILE/airootfs/opt/arch-installer/"
 cp -a "$REPO_ROOT/README.md" "$PROFILE/airootfs/opt/arch-installer/"
 find "$PROFILE/airootfs/opt/arch-installer" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
 [[ -f "$PROFILE/airootfs/opt/arch-installer/installer/__main__.py" ]] \
   || die "the installer package did not get copied into the profile"
+[[ -f "$PROFILE/airootfs/opt/arch-installer/panel/__main__.py" ]] \
+  || die "the control panel did not get copied into the profile"
 
 chmod 0755 \
   "$PROFILE/airootfs/usr/local/bin/arch-installer-session" \
