@@ -24,6 +24,6 @@ docker run --rm --privileged \
   "$IMAGE" \
   bash -lc '
     set -Eeuo pipefail
-    pacman -Sy --noconfirm --needed archiso python
+    pacman -Sy --noconfirm --needed archiso mkinitcpio python
     ./iso/build-iso.sh --out /build/out
   '

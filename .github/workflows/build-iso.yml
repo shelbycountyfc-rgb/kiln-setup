@@ -40,7 +40,7 @@ jobs:
             archlinux:latest \
             bash -lc '
               set -euo pipefail
-              pacman -Sy --noconfirm --needed archiso python
+              pacman -Sy --noconfirm --needed archiso mkinitcpio python
               ./iso/build-iso.sh --out /build/out
             '
 

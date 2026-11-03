@@ -117,6 +117,30 @@ seed_boot_configs() {
 
 seed_boot_configs
 
+# The live root is a squashfs that the initramfs has to find and mount, which
+# needs the archiso hooks.  A pacstrapped /etc/mkinitcpio.conf has none, and the
+# resulting medium boots into the emergency shell because root never appears.
+# Take the releng mkinitcpio configuration, written for the archiso installed
+# here, exactly like the boot menus above.
+seed_initramfs_config() {
+  local releng="/usr/share/archiso/configs/releng"
+  local config="$PROFILE/airootfs/etc/mkinitcpio.conf"
+  if [[ ! -f "$config" ]]; then
+    [[ -f "$releng/airootfs/etc/mkinitcpio.conf" ]] \
+      || die "$releng/airootfs/etc/mkinitcpio.conf is missing; install archiso"
+    log "seeding mkinitcpio.conf with the archiso hooks"
+    mkdir -p "$(dirname "$config")"
+    cp -a "$releng/airootfs/etc/mkinitcpio.conf" "$config"
+  fi
+  if [[ ! -d "$PROFILE/airootfs/etc/mkinitcpio.d" && -d "$releng/airootfs/etc/mkinitcpio.d" ]]; then
+    mkdir -p "$PROFILE/airootfs/etc/mkinitcpio.d"
+    cp -a "$releng/airootfs/etc/mkinitcpio.d/." "$PROFILE/airootfs/etc/mkinitcpio.d/"
+  fi
+  grep -q 'archiso' "$config" \
+    || die "mkinitcpio.conf has no archiso hook; the medium could not mount its own root"
+}
+seed_initramfs_config
+
 log "installing the Python installer into the live root"
 mkdir -p "$PROFILE/airootfs/opt/arch-installer"
 cp -a "$REPO_ROOT/installer" "$PROFILE/airootfs/opt/arch-installer/"
@@ -184,6 +208,16 @@ if command -v xorriso >/dev/null 2>&1; then
       || die "the control panel is not inside the live root"
     grep -q 'etc/systemd/system/getty@tty1.service.d/autologin.conf' <<<"$live_listing" \
       || die "the autologin that starts the installer at boot is missing"
+
+    # Without the archiso hook the initramfs cannot mount the squashfs and the
+    # medium stops in the emergency shell.  This is the check that catches it.
+    initramfs="$(find "$WORK_DIR" -name 'initramfs-linux*.img' -print -quit 2>/dev/null || true)"
+    if [[ -n "$initramfs" ]] && command -v lsinitcpio >/dev/null 2>&1; then
+      lsinitcpio "$initramfs" 2>/dev/null | grep -q 'hooks/archiso' \
+        || die "the initramfs has no archiso hook: the medium cannot mount its own root"
+    else
+      warn "the initramfs could not be inspected; archiso hook support is unproven"
+    fi
   else
     warn "the live root could not be inspected; the image was not fully verified"
   fi
