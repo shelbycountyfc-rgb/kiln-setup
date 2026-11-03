@@ -439,9 +439,7 @@ class SoftwarePage(PanelPage):
 
     def refresh_system_state(self) -> None:
         def work():
-            ctx = self.app.ctx
-            installed = set(pkg_tools.installed_package_names(ctx))
-            return installed, core.multilib_enabled()
+            return core.installed_packages(self.app.ctx), core.multilib_enabled()
 
         self.app.job(work, self._state_loaded)
 

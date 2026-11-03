@@ -145,11 +145,22 @@ def updates(ctx: Context) -> list:
     return rows
 
 
-def installed_count(ctx: Context) -> int:
+def installed_packages(ctx: Context) -> set:
+    """Names of the packages installed on this machine.
+
+    The panel runs on the installed system, so this is a plain ``pacman -Qq``.
+    The installer's ``installed_package_names`` helper chroots into /mnt and is
+    the wrong tool here.
+    """
     try:
-        return len([line for line in ctx.captured(["pacman", "-Qq"], quiet=True).splitlines() if line])
+        out = ctx.captured(["pacman", "-Qq"], quiet=True)
     except Exception:
-        return 0
+        return set()
+    return {line.strip() for line in out.splitlines() if line.strip()}
+
+
+def installed_count(ctx: Context) -> int:
+    return len(installed_packages(ctx))
 
 
 def multilib_enabled() -> bool:
