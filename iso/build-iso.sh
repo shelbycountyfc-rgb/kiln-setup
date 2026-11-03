@@ -82,6 +82,34 @@ PROFILE="$WORK_DIR/profile"
 log "copying the profile to $PROFILE"
 cp -a "$PROFILE_SRC" "$PROFILE"
 
+# mkarchiso validates the boot configuration of the profile before it builds:
+# without efiboot/ and syslinux/ it aborts with "directory is missing".  The
+# menu files are taken from the releng profile that ships with the installed
+# archiso, so they always match the mkarchiso doing the build instead of
+# hard-coding placeholders that only one version understands.
+seed_boot_configs() {
+  local releng="/usr/share/archiso/configs/releng"
+  local mode
+  for mode in efiboot syslinux; do
+    [[ -d "$PROFILE/$mode" ]] && continue
+    [[ -d "$releng/$mode" ]] \
+      || die "the profile has no $mode/ and $releng/$mode is missing; install archiso"
+    log "seeding the $mode boot configuration from $releng"
+    cp -a "$releng/$mode" "$PROFILE/$mode"
+  done
+  # Say what this medium is on the boot menu.
+  { grep -rl 'Arch Linux install medium' "$PROFILE/efiboot" "$PROFILE/syslinux" 2>/dev/null || true; } \
+    | while read -r menu; do
+        sed -i 's/Arch Linux install medium/Arch Linux GUI installer/g' "$menu"
+      done
+  [[ -d "$PROFILE/efiboot/loader/entries" ]] \
+    || die "efiboot/loader/entries is missing from the profile"
+  [[ -f "$PROFILE/syslinux/syslinux.cfg" ]] \
+    || die "syslinux/syslinux.cfg is missing from the profile"
+}
+
+seed_boot_configs
+
 log "installing the Python installer into the live root"
 mkdir -p "$PROFILE/airootfs/opt/arch-installer"
 cp -a "$REPO_ROOT/installer" "$PROFILE/airootfs/opt/arch-installer/"
