@@ -40,6 +40,7 @@ iso/                  the bootable medium
   profile/            mkarchiso profile, packages, pacman.conf
     airootfs/         live system: autologin, X session, installers, launchers
 docs/ARCHITECTURE.md  how the pieces fit together
+.github/workflows/build-iso.yml   CI: builds the ISO and attaches it to a release
 ```
 
 ## The installation wizard
@@ -178,6 +179,21 @@ sudo dd if=arch-gui-installer-<date>-x86_64.iso of=/dev/sdX bs=4M status=progres
 qemu-system-x86_64 -enable-kvm -m 4096 -bios /usr/share/edk2/x64/OVMF.4m.fd \
   -cdrom arch-gui-installer-<date>-x86_64.iso
 ```
+
+### Prebuilt image from GitHub
+
+`.github/workflows/build-iso.yml` builds the image on an Ubuntu runner inside an
+`archlinux:latest` container (`--privileged`, because `mkarchiso` needs loop
+devices) and attaches it to a GitHub Release:
+
+```bash
+git tag v1.0.0 && git push origin v1.0.0        # builds and publishes the release
+gh workflow run build-iso.yml -f release_tag=v1.0.0   # or run it by hand
+```
+
+The `.iso` and its `.sha256` appear under **Releases**, and every run keeps the
+same files as a 30-day artifact. The image is deliberately **not** committed:
+a multi-gigabyte binary does not belong in git history.
 
 ## Requirements
 

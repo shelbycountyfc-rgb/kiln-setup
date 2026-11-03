@@ -1,0 +1,92 @@
+name: build-iso
+
+# Builds the bootable installer image and publishes it as a release asset.
+#
+# An ISO is a multi-hundred-megabyte artifact, so it is never committed: it is
+# built on a runner and attached to a GitHub Release. Push a tag (v1.0.0) or run
+# the workflow by hand, then download the image from the release page or from
+# the run's artifacts.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to create or update (e.g. v1.0.0). Empty: artifact only."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  iso:
+    name: Build the installer ISO
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Build the image in an Arch Linux container
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          docker run --rm --privileged \
+            -v "$PWD:/build" \
+            -w /build \
+            archlinux:latest \
+            bash -lc '
+              set -euo pipefail
+              pacman -Sy --noconfirm --needed archiso python
+              ./iso/build-iso.sh --out /build/out
+            '
+
+      - name: Verify the checksum
+        run: |
+          set -euo pipefail
+          cd out
+          ls -l
+          sha256sum -c ./*.iso.sha256
+
+      - name: Show what the image contains
+        run: |
+          set -euo pipefail
+          image="$(ls out/*.iso | head -1)"
+          xorriso -indev "$image" -report_el_torito plain | grep -i boot || true
+
+      - name: Upload the image as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arch-gui-installer-iso
+          path: |
+            out/*.iso
+            out/*.iso.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish a release
+        if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          name: Arch GUI Installer ${{ inputs.release_tag || github.ref_name }}
+          body: |
+            Bootable Arch Linux GUI installer image.
+
+            Write it to a USB stick:
+            ```
+            sudo dd if=arch-gui-installer-*.iso of=/dev/sdX bs=4M status=progress oflag=sync
+            ```
+            or boot it in a virtual machine:
+            ```
+            qemu-system-x86_64 -enable-kvm -m 4096 \
+              -bios /usr/share/edk2/x64/OVMF.4m.fd -cdrom arch-gui-installer-*.iso
+            ```
+            The installer starts by itself on tty1. Installing erases the selected disk.
+          files: |
+            out/*.iso
+            out/*.iso.sha256
+          fail_on_unmatched_files: true
