@@ -117,27 +117,33 @@ seed_boot_configs() {
 
 seed_boot_configs
 
-# The live root is a squashfs that the initramfs has to find and mount, which
-# needs the archiso hooks.  A pacstrapped /etc/mkinitcpio.conf has none, and the
-# resulting medium boots into the emergency shell because root never appears.
-# Take the releng mkinitcpio configuration, written for the archiso installed
-# here, exactly like the boot menus above.
+# The live root is a squashfs that the initramfs has to find and mount.  That
+# needs the archiso hooks, and it must not use "autodetect": autodetect writes an
+# initramfs for the machine that built the image, so the medium would miss the
+# storage and USB drivers of the PC it is booted on.  archiso ships both settings
+# as a mkinitcpio drop-in; take it from the installed profile, so it always
+# matches the archiso doing the build.
 seed_initramfs_config() {
   local releng="/usr/share/archiso/configs/releng"
-  local config="$PROFILE/airootfs/etc/mkinitcpio.conf"
-  if [[ ! -f "$config" ]]; then
-    [[ -f "$releng/airootfs/etc/mkinitcpio.conf" ]] \
-      || die "$releng/airootfs/etc/mkinitcpio.conf is missing; install archiso"
-    log "seeding mkinitcpio.conf with the archiso hooks"
-    mkdir -p "$(dirname "$config")"
-    cp -a "$releng/airootfs/etc/mkinitcpio.conf" "$config"
+  local dropin_dir="$PROFILE/airootfs/etc/mkinitcpio.conf.d"
+  local dropin="$dropin_dir/archiso.conf"
+  if [[ ! -f "$dropin" ]]; then
+    if [[ -f "$releng/airootfs/etc/mkinitcpio.conf.d/archiso.conf" ]]; then
+      log "seeding the archiso mkinitcpio drop-in"
+      mkdir -p "$dropin_dir"
+      cp -a "$releng/airootfs/etc/mkinitcpio.conf.d/." "$dropin_dir/"
+    elif [[ -f "$releng/airootfs/etc/mkinitcpio.conf" ]]; then
+      # Older archiso: one complete configuration instead of a drop-in.
+      log "seeding mkinitcpio.conf with the archiso hooks"
+      mkdir -p "$PROFILE/airootfs/etc"
+      cp -a "$releng/airootfs/etc/mkinitcpio.conf" "$PROFILE/airootfs/etc/mkinitcpio.conf"
+    else
+      die "archiso ships no mkinitcpio configuration; a bootable medium cannot be built"
+    fi
   fi
-  if [[ ! -d "$PROFILE/airootfs/etc/mkinitcpio.d" && -d "$releng/airootfs/etc/mkinitcpio.d" ]]; then
-    mkdir -p "$PROFILE/airootfs/etc/mkinitcpio.d"
-    cp -a "$releng/airootfs/etc/mkinitcpio.d/." "$PROFILE/airootfs/etc/mkinitcpio.d/"
+  if ! grep -rqs 'archiso' "$dropin_dir" "$PROFILE/airootfs/etc/mkinitcpio.conf" 2>/dev/null; then
+    die "no archiso hook in the mkinitcpio configuration: the medium could not mount its own root"
   fi
-  grep -q 'archiso' "$config" \
-    || die "mkinitcpio.conf has no archiso hook; the medium could not mount its own root"
 }
 seed_initramfs_config
 
