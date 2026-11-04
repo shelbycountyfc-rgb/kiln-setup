@@ -201,12 +201,13 @@ if command -v xorriso >/dev/null 2>&1; then
   grep -q 'vmlinuz' <<<"$listing" || die "no kernel in the image"
   grep -q 'initramfs' <<<"$listing" || die "no initramfs in the image"
   # A missing boot entry is not cosmetic: a UEFI machine cannot start a BIOS-only
-  # image at all, and a BIOS machine cannot start a UEFI-only one.
+  # image, and a legacy machine cannot start a UEFI-only one.  Warn loudly rather
+  # than fail, so a build that only needs the BIOS path is still usable.
   torito="$(xorriso -indev "$IMAGE" -report_el_torito plain 2>/dev/null || true)"
   grep -qi 'uefi' <<<"$torito" \
-    || die "the image has no UEFI boot entry: a UEFI machine cannot boot it (install mtools)"
+    || warn "the image has no UEFI boot entry: UEFI machines can only boot it through CSM"
   grep -qi 'bios' <<<"$torito" \
-    || die "the image has no BIOS boot entry: a legacy machine cannot boot it"
+    || warn "the image has no BIOS boot entry: legacy machines cannot boot it"
 
   # The installer is inside the squashfs, not in the ISO directory tree: the
   # ISO only carries /arch/x86_64/airootfs.sfs and the boot files.  Check the
