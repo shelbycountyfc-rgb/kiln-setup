@@ -1044,8 +1044,15 @@ class ProgressPage(Page):
         from ..orchestrator import PHASES
 
         self._phase_ids = []
+        self._phase_labels = {}
         for pid, label, _weight in PHASES:
-            item = self.tree.insert("", "end", text="  " + label, values=("pending",))
+            # The label is kept here, not read back out of the row: rebuilding the
+            # text from the previous text drifted the names to the right on every
+            # repaint.
+            self._phase_labels[pid] = label
+            item = self.tree.insert(
+                "", "end", text=self._phase_text("pending", label), values=("pending",),
+            )
             self._phase_ids.append((pid, item))
 
         log_card = Card(body, theme, "Log", "The same lines are written to /var/log/arch-installer.log.")
@@ -1097,12 +1104,19 @@ class ProgressPage(Page):
         if not status["finished"]:
             self.after(400, self._poll)
 
+    MARKS = {"done": "\u2713", "running": "\u25b6", "pending": "\u00b7", "failed": "!"}
+
+    def _phase_text(self, state: str, label: str) -> str:
+        return "  %s  %s" % (self.MARKS.get(state, "\u00b7"), label)
+
     def _paint_phases(self, phases) -> None:
-        marks = {"done": "\u2713", "running": "\u25b6", "pending": "\u00b7", "failed": "!"}
         states = {row["id"]: row["state"] for row in phases}
         for pid, item in self._phase_ids:
             state = states.get(pid, "pending")
-            self.tree.item(item, text="  %s  %s" % (marks.get(state, "\u00b7"), self.tree.item(item, "text").strip()[2:]))
+            self.tree.item(
+                item, text=self._phase_text(state, self._phase_labels.get(pid, "")),
+                values=(state,),
+            )
 
     def _paint_log(self, lines) -> None:
         self.log.configure(state="normal")
