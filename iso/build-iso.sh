@@ -190,6 +190,24 @@ mkdir -p "$PROFILE/airootfs/etc/systemd/system"
 ln -sf /dev/null "$PROFILE/airootfs/etc/systemd/system/systemd-firstboot.service"
 printf '0123456789abcdef0123456789abcdef\n' > "$PROFILE/airootfs/etc/machine-id"
 
+# reflector runs at boot and rewrites the mirrorlist.  On a machine that boots
+# without a network it finishes with an empty list, and pacstrap then fails with
+# "no servers configured for repository" -- a dead end for someone installing
+# from Wi-Fi.  Ship working mirrors and keep reflector from replacing them; the
+# installer can still optimise the list later.
+log "shipping a fallback mirrorlist"
+mkdir -p "$PROFILE/airootfs/etc/pacman.d"
+cat > "$PROFILE/airootfs/etc/pacman.d/mirrorlist" <<'MIRRORS'
+## Arch Linux repository mirrorlist
+## Shipped by the installer medium so an installation can start without a
+## network-generated list; reflector is masked and cannot empty it.
+Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch
+Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch
+Server = https://mirrors.kernel.org/archlinux/$repo/os/$arch
+MIRRORS
+ln -sf /dev/null "$PROFILE/airootfs/etc/systemd/system/reflector.service"
+ln -sf /dev/null "$PROFILE/airootfs/etc/systemd/system/reflector.timer"
+
 before="$(find "$OUT_DIR" -maxdepth 1 -name 'arch-gui-installer-*.iso' -printf '%f\n' 2>/dev/null | sort || true)"
 
 log "running mkarchiso (this takes a while: the live root is downloaded and squashed)"
