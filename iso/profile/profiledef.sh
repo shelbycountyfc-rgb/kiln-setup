@@ -8,7 +8,9 @@ iso_name="arch-gui-installer"
 iso_label="ARCH_GUI"
 iso_publisher="Arch GUI Installer <https://archlinux.org>"
 iso_application="Arch Linux GUI installer"
-iso_version="$(date +%Y.%m.%d)"
+# A revision suffix lets a corrected medium be built beside the previous one,
+# which matters when the older image is still open on the build machine.
+iso_version="$(date +%Y.%m.%d)${ISO_REVISION:+-$ISO_REVISION}"
 install_dir="arch"
 buildmodes=('iso')
 bootmodes=('uefi.systemd-boot' 'bios.syslinux')

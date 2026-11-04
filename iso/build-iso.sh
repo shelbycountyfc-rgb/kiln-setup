@@ -275,8 +275,14 @@ shopt -s nullglob
 for old in "$OUT_DIR"/arch-gui-installer-*.iso "$OUT_DIR"/arch-gui-installer-*.iso.sha256; do
   [[ "$(basename "$old")" == "$(basename "$IMAGE")" ]] && continue
   [[ "$(basename "$old")" == "$(basename "$IMAGE").sha256" ]] && continue
-  log "removing the previous image $(basename "$old")"
-  rm -f "$old"
+  # A previous image that is still open elsewhere (a VM, an antivirus scan)
+  # cannot be deleted; that is no reason to fail a build that already produced
+  # a verified image.
+  if rm -f "$old" 2>/dev/null; then
+    log "removed the previous image $(basename "$old")"
+  else
+    warn "could not remove $(basename "$old"); it is in use elsewhere"
+  fi
 done
 shopt -u nullglob
 
