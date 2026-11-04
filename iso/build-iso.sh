@@ -181,6 +181,15 @@ else
   warn "python3 is not installed on the build host; skipping the source check"
 fi
 
+# A live root whose /etc/machine-id says "uninitialized" counts as a first boot
+# to systemd, so systemd-firstboot claims tty1 with its Initial Setup wizard and
+# the installer never appears.  Write a real id and mask the unit outright: the
+# console of this medium belongs to the installer whatever the build leaves.
+log "masking systemd-firstboot on the live medium"
+mkdir -p "$PROFILE/airootfs/etc/systemd/system"
+ln -sf /dev/null "$PROFILE/airootfs/etc/systemd/system/systemd-firstboot.service"
+printf '0123456789abcdef0123456789abcdef\n' > "$PROFILE/airootfs/etc/machine-id"
+
 before="$(find "$OUT_DIR" -maxdepth 1 -name 'arch-gui-installer-*.iso' -printf '%f\n' 2>/dev/null | sort || true)"
 
 log "running mkarchiso (this takes a while: the live root is downloaded and squashed)"
