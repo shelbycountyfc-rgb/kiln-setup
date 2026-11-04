@@ -18,24 +18,29 @@ def _safe_name(ssid: str) -> str:
 
 
 def profile_text(cfg: InstallConfig) -> str:
-    """A NetworkManager keyfile for the network on the System page."""
+    """A NetworkManager keyfile for the network on the Network page."""
+    return wifi_profile(cfg.wifi_ssid, cfg.wifi_password)
+
+
+def wifi_profile(ssid: str, password: str) -> str:
+    """A NetworkManager keyfile for one network; shared with the live medium."""
     lines = [
         "[connection]",
-        "id=%s" % cfg.wifi_ssid,
-        "uuid=%s" % _uuid(cfg.wifi_ssid),
+        "id=%s" % ssid,
+        "uuid=%s" % _uuid(ssid),
         "type=wifi",
         "autoconnect=true",
         "",
         "[wifi]",
         "mode=infrastructure",
-        "ssid=%s" % cfg.wifi_ssid,
+        "ssid=%s" % ssid,
     ]
-    if cfg.wifi_password:
+    if password:
         lines += [
             "",
             "[wifi-security]",
             "key-mgmt=wpa-psk",
-            "psk=%s" % cfg.wifi_password,
+            "psk=%s" % password,
         ]
     lines += ["", "[ipv4]", "method=auto", "", "[ipv6]", "method=auto", ""]
     return "\n".join(lines)

@@ -16,6 +16,7 @@ from .. import catalog, disk as disk_module, options, packages, system
 from ..config import InstallConfig
 from ..context import human_bytes
 from ..disk import MIN_DISK_BYTES, recommended_swap
+from ..live_network import LiveNetwork
 from .widgets import (
     Banner,
     Card,
@@ -235,6 +236,149 @@ class HardwarePage(Page):
             "the installation.",
             kind="info",
         ).pack(fill="x")
+
+
+# --------------------------------------------------------------------------- #
+# Network
+# --------------------------------------------------------------------------- #
+class NetworkPage(Page):
+    name = "network"
+    title = "Connect to the internet"
+    subtitle = "The packages are downloaded while installing, so this computer has to be online."
+    footer_note = "The Wi-Fi profile is saved in the new system as well."
+    rail_key = "network"
+
+    def build(self, body: tk.Misc) -> None:
+        theme = self.theme
+        form_data = self.app.form
+        self.net = LiveNetwork(self.app.ctx)
+        self._networks: dict = {}
+
+        state = Card(body, theme, "This computer")
+        state.pack(fill="x", pady=(0, 16))
+        self.state_label = tk.Label(
+            state.body, text="Checking the connection\u2026", bg=theme.panel, fg=theme.muted,
+            font=theme.body, anchor="w", justify="left", wraplength=640,
+        )
+        self.state_label.pack(fill="x")
+
+        wifi = Card(
+            body, theme, "Wi-Fi",
+            "Pick the network this machine uses. A cable is used automatically when one is plugged in.",
+        )
+        wifi.pack(fill="x")
+        form = Form(wifi.body, theme)
+        form.pack(fill="x")
+
+        holder = form.field("Network", "Press Scan, then choose the name of your network.")
+        self.network_var = tk.StringVar()
+        self.network_box = ttk.Combobox(
+            holder, textvariable=self.network_var, values=[], width=32, state="readonly"
+        )
+        self.network_box.pack(side="left")
+        ttk.Button(holder, text="Scan", style="Secondary.TButton", command=self.scan).pack(
+            side="left", padx=(8, 0)
+        )
+
+        holder = form.field("Password", "8 to 63 characters. Leave empty for an open network.")
+        self.wifi_password = tk.StringVar()
+        ttk.Entry(holder, textvariable=self.wifi_password, show="\u2022", width=32).pack(side="left")
+
+        holder = form.field("Connection")
+        ttk.Button(holder, text="Connect", style="Accent.TButton", command=self.connect).pack(side="left")
+        self.connect_label = tk.Label(
+            holder, text="", bg=theme.panel, fg=theme.muted, font=theme.small, anchor="w",
+            justify="left", wraplength=380,
+        )
+        self.connect_label.pack(side="left", padx=(12, 0))
+
+        self.saved_ssid = tk.StringVar(value=form_data.get("wifiSsid", ""))
+
+    # -- actions -----------------------------------------------------------
+    def _say(self, text: str) -> None:
+        self.connect_label.configure(text=text)
+
+    def scan(self) -> None:
+        if not self.net.usable:
+            self._say("NetworkManager is not available on this medium.")
+            return
+        devices = self.net.wifi_devices()
+        if not devices:
+            self._say("No wireless adapter was found. A cable is used instead.")
+            self._refresh_state()
+            return
+        self._say("Scanning %s\u2026" % devices[0])
+        self.update_idletasks()
+        found = self.net.scan(devices[0])
+        self._networks = {network.label: network for network in found}
+        self.network_box.configure(values=list(self._networks))
+        if self._networks:
+            if self.network_var.get() not in self._networks:
+                self.network_var.set(next(iter(self._networks)))
+            self._say("%d network(s) in range. Choose one and press Connect." % len(self._networks))
+        else:
+            self._say("No networks in range yet. Move closer and press Scan again.")
+        self._refresh_state()
+
+    def connect(self) -> None:
+        network = self._networks.get(self.network_var.get())
+        if network is None:
+            self._say("Press Scan first, then choose a network.")
+            return
+        devices = self.net.wifi_devices()
+        if not devices:
+            self._say("No wireless adapter was found.")
+            return
+        self._say("Connecting to %s\u2026" % network.ssid)
+        self.update_idletasks()
+        ok, problem = self.net.connect(devices[0], network.ssid, self.wifi_password.get())
+        if ok:
+            self.saved_ssid.set(network.ssid)
+            self._say("Connected to %s." % network.ssid)
+        else:
+            self._say("Not connected: %s" % problem)
+        self._refresh_state()
+
+    def _refresh_state(self) -> None:
+        if self.net.ctx.dry_run:
+            self.state_label.configure(text="Simulation: the network is not touched.")
+            return
+        device = self.net.connected_device()
+        if device and self.net.online():
+            self.state_label.configure(
+                text="Online through %s. The packages can be downloaded." % device
+            )
+        elif device:
+            self.state_label.configure(
+                text="%s is connected, but no address came back yet." % device
+            )
+        else:
+            self.state_label.configure(
+                text="Not connected. A cable is used automatically when one is plugged in; "
+                "otherwise choose a Wi-Fi network below."
+            )
+
+    def enter(self) -> None:
+        self._refresh_state()
+        if self.net.usable and not self._networks:
+            try:
+                self.scan()
+            except Exception as error:  # nmcli can fail in a dozen harmless ways
+                self._say("Scanning failed: %s" % error)
+
+    def collect(self) -> None:
+        form = self.app.form
+        chosen = self.saved_ssid.get().strip()
+        form["wifiSsid"] = chosen
+        form["wifiPassword"] = self.wifi_password.get() if chosen else ""
+
+    def errors(self) -> list:
+        if self.net.ctx.dry_run or self.net.online():
+            return []
+        return [
+            "The installation downloads its packages, so this computer has to be online: "
+            "choose a Wi-Fi network and press Connect."
+        ]
 
 
 # --------------------------------------------------------------------------- #
@@ -486,19 +630,9 @@ class SystemPage(Page):
         combo.pack(side="left")
         self._bootloader_labels = labels
 
-        network = Card(
-            body, theme, "Wi-Fi",
-            "Optional. The profile is saved in the new system so it connects on its first boot.",
-        )
-        network.pack(fill="x")
-        form = Form(network.body, theme)
-        form.pack(fill="x")
-        holder = form.field("Network name", "Leave empty when the machine uses a cable.")
-        self.wifi_ssid = tk.StringVar(value=form_data.get("wifiSsid", ""))
-        ttk.Entry(holder, textvariable=self.wifi_ssid, width=32).pack(side="left")
-        holder = form.field("Password", "8 to 63 characters. Leave empty for an open network.")
-        self.wifi_password = tk.StringVar()
-        ttk.Entry(holder, textvariable=self.wifi_password, show="\u2022", width=32).pack(side="left")
+        # The Wi-Fi answers live on the Network page: that is where the medium
+        # itself is connected, and the profile written into the new system is
+        # the one that was actually used.
 
     def enter(self) -> None:
         pass
@@ -512,8 +646,6 @@ class SystemPage(Page):
         reverse = {label: key for key, label in self._bootloader_labels.items()}
         form["bootloader"] = reverse.get(self.bootloader_label.get(), "auto")
         form["rootPassword"] = self.root_password.get()
-        form["wifiSsid"] = self.wifi_ssid.get().strip()
-        form["wifiPassword"] = self.wifi_password.get()
         name = self.username.get().strip()
         if name:
             form["user"] = {
@@ -540,8 +672,6 @@ class SystemPage(Page):
         if self.username.get().strip():
             if self.user_password.get() != self.user_password2.get():
                 problems.append("The two user passwords do not match.")
-        if self.wifi_ssid.get().strip() and not self.wifi_password.get():
-            problems.append("Enter the Wi-Fi password, or leave the network name empty.")
         return problems
 
 

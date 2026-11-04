@@ -18,6 +18,7 @@ from .pages import (
     DiskPage,
     FinishPage,
     HardwarePage,
+    NetworkPage,
     ProgressPage,
     SoftwarePage,
     SummaryPage,
@@ -32,9 +33,10 @@ GIB = 1024 ** 3
 class Installer:
     """Owns the window, the collected answers and the running installation."""
 
-    ORDER = ("welcome", "hardware", "disk", "system", "software", "summary", "progress", "finish")
+    ORDER = ("welcome", "hardware", "network", "disk", "system", "software", "summary", "progress", "finish")
     RAIL = (
         ("hardware", "Hardware"),
+        ("network", "Network"),
         ("disk", "Disk"),
         ("system", "System"),
         ("software", "Software"),
@@ -246,6 +248,7 @@ class Installer:
         for page_class in (
             WelcomePage,
             HardwarePage,
+            NetworkPage,
             DiskPage,
             SystemPage,
             SoftwarePage,

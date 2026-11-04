@@ -208,6 +208,18 @@ MIRRORS
 ln -sf /dev/null "$PROFILE/airootfs/etc/systemd/system/reflector.service"
 ln -sf /dev/null "$PROFILE/airootfs/etc/systemd/system/reflector.timer"
 
+# NetworkManager is the only manager on this medium.  The installer connects the
+# medium itself through nmcli, and two managers claiming one wireless adapter is
+# how a Wi-Fi-only machine ends up with no network at all.
+log "making NetworkManager the only network manager on the live medium"
+mkdir -p "$PROFILE/airootfs/etc/systemd/system/multi-user.target.wants"
+ln -sf /usr/lib/systemd/system/NetworkManager.service \
+  "$PROFILE/airootfs/etc/systemd/system/multi-user.target.wants/NetworkManager.service"
+for unit in iwd.service iwd.socket systemd-networkd.service systemd-networkd.socket \
+            systemd-networkd-wait-online.service; do
+  ln -sf /dev/null "$PROFILE/airootfs/etc/systemd/system/$unit"
+done
+
 before="$(find "$OUT_DIR" -maxdepth 1 -name 'arch-gui-installer-*.iso' -printf '%f\n' 2>/dev/null | sort || true)"
 
 log "running mkarchiso (this takes a while: the live root is downloaded and squashed)"
