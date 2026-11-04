@@ -87,17 +87,13 @@ class Page(tk.Frame):
 class WelcomePage(Page):
     name = "welcome"
     title = "Install Arch Linux"
-    subtitle = "A guided installation in the style of a Windows setup screen."
+    subtitle = "This takes about 10 to 25 minutes and keeps your answers on every page."
     footer_note = "Everything can still be changed on the following pages."
     next_text = "Get started"
     show_back = False
 
     def build(self, body: tk.Misc) -> None:
         theme = self.theme
-        tk.Label(
-            body, text="Set up this computer", bg=theme.panel, fg=theme.ink,
-            font=theme.big, anchor="w",
-        ).pack(fill="x", pady=(4, 6))
         tk.Label(
             body,
             text=(

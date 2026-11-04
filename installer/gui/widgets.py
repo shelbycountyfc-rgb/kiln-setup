@@ -144,9 +144,9 @@ class Form(tk.Frame):
 # Navigation rail
 # --------------------------------------------------------------------------- #
 class StepRail(tk.Frame):
-    """The dark step list on the left edge of the window."""
+    """The step list on the left edge, styled like the Windows Settings nav."""
 
-    def __init__(self, master: tk.Misc, theme: Theme, width: int = 248) -> None:
+    def __init__(self, master: tk.Misc, theme: Theme, width: int = 236) -> None:
         super().__init__(master, bg=theme.rail, width=width)
         self.theme = theme
         self.pack_propagate(False)
@@ -154,27 +154,30 @@ class StepRail(tk.Frame):
         self._order: list = []
 
         brand = tk.Frame(self, bg=theme.rail)
-        brand.pack(fill="x", padx=22, pady=(26, 0))
-        mark = tk.Canvas(brand, width=22, height=22, bg=theme.rail, highlightthickness=0, bd=0)
-        mark.pack(side="left", pady=(1, 0))
-        # The Arch "A" as a simple chevron, drawn rather than shipped as an image.
-        mark.create_polygon(3, 20, 11, 2, 19, 20, 14, 20, 11, 11, 8, 20, fill=theme.accent, outline="")
+        brand.pack(fill="x", padx=20, pady=(22, 0))
+        mark = tk.Canvas(brand, width=20, height=20, bg=theme.rail, highlightthickness=0, bd=0)
+        mark.pack(side="left", pady=(2, 0))
+        # A flat accent tile with the Arch chevron, drawn rather than shipped.
+        mark.create_rectangle(0, 0, 20, 20, fill=theme.accent, outline="")
+        mark.create_polygon(4, 15, 10, 4, 16, 15, 12.6, 15, 10, 9, 7.4, 15, fill="#ffffff", outline="")
         names = tk.Frame(brand, bg=theme.rail)
-        names.pack(side="left", padx=(11, 0), fill="x", expand=True)
-        tk.Label(names, text="ARCH", bg=theme.rail, fg="#ffffff", font=theme.brand, anchor="w").pack(fill="x")
+        names.pack(side="left", padx=(10, 0), fill="x", expand=True)
         tk.Label(
-            names, text="Linux installer", bg=theme.rail, fg=theme.rail_faint,
+            names, text="Arch Linux", bg=theme.rail, fg=theme.ink, font=theme.brand, anchor="w",
+        ).pack(fill="x")
+        tk.Label(
+            names, text="Setup", bg=theme.rail, fg=theme.rail_faint,
             font=theme.small, anchor="w",
-        ).pack(fill="x", pady=(1, 0))
-        tk.Frame(self, bg=theme.rail_line, height=1).pack(fill="x", padx=22, pady=(18, 16))
+        ).pack(fill="x")
+        tk.Frame(self, bg=theme.rail_line, height=1).pack(fill="x", padx=20, pady=(16, 12))
 
         self.list = tk.Frame(self, bg=theme.rail)
-        self.list.pack(fill="both", expand=True, padx=(16, 8))
+        self.list.pack(fill="both", expand=True, padx=(8, 8))
         self.footer = tk.Label(
-            self, text="", bg=theme.rail, fg="#6b7482", font=theme.small,
-            anchor="w", justify="left", wraplength=200,
+            self, text="", bg=theme.rail, fg=theme.rail_faint, font=theme.small,
+            anchor="w", justify="left", wraplength=190,
         )
-        self.footer.pack(fill="x", padx=22, pady=(8, 18))
+        self.footer.pack(fill="x", padx=20, pady=(8, 16))
 
     def set_steps(self, steps) -> None:
         for child in self.list.winfo_children():
@@ -183,46 +186,52 @@ class StepRail(tk.Frame):
         self._order = [key for key, _label in steps]
         for index, (key, label) in enumerate(steps, start=1):
             row = tk.Frame(self.list, bg=self.theme.rail)
-            row.pack(fill="x", pady=4)
+            row.pack(fill="x", pady=1)
             bar = tk.Frame(row, bg=self.theme.rail, width=3)
             bar.pack(side="left", fill="y")
-            dot = tk.Canvas(row, width=24, height=24, bg=self.theme.rail, highlightthickness=0, bd=0)
-            dot.pack(side="left", padx=(9, 0))
+            dot = tk.Canvas(row, width=22, height=22, bg=self.theme.rail, highlightthickness=0, bd=0)
+            dot.pack(side="left", padx=(10, 0), pady=6)
             text = tk.Label(
                 row, text=label, bg=self.theme.rail, fg=self.theme.rail_text,
                 font=self.theme.body, anchor="w",
             )
-            text.pack(side="left", padx=(11, 0), fill="x", expand=True)
-            self._rows[key] = (bar, dot, text, index)
+            text.pack(side="left", padx=(10, 8), fill="x", expand=True)
+            self._rows[key] = (row, bar, dot, text, index)
             self.set_state(key, "pending")
 
     def set_state(self, key: str, state: str) -> None:
         row = self._rows.get(key)
         if row is None:
             return
-        bar, dot, text, index = row
+        frame, bar, dot, text, index = row
         theme = self.theme
-        try:
-            bar.configure(bg=theme.accent if state == "active" else theme.rail)
-        except tk.TclError:
-            pass
+        # The selected step sits on a white surface with an accent edge, the way
+        # a selected item does in Windows Settings.
+        surface = theme.panel if state == "active" else theme.rail
+        for widget in (frame, bar, dot, text):
+            try:
+                widget.configure(bg=surface)
+            except tk.TclError:
+                pass
+        if state == "active":
+            bar.configure(bg=theme.accent)
         dot.delete("all")
         if state == "done":
-            dot.create_oval(2, 2, 22, 22, fill=theme.ok, outline=theme.ok)
-            dot.create_text(12, 12, text="\u2713", fill="#ffffff", font=theme.small_bold)
-            text.configure(fg="#9aa3b0", font=theme.body)
+            dot.create_oval(2, 2, 20, 20, fill=theme.ok, outline=theme.ok)
+            dot.create_text(11, 11, text="\u2713", fill="#ffffff", font=theme.small_bold)
+            text.configure(fg=theme.muted, font=theme.body)
         elif state == "active":
-            dot.create_oval(2, 2, 22, 22, fill=theme.accent, outline=theme.accent)
-            dot.create_text(12, 12, text=str(index), fill="#ffffff", font=theme.small_bold)
-            text.configure(fg="#ffffff", font=theme.body_bold)
+            dot.create_oval(2, 2, 20, 20, fill=theme.accent, outline=theme.accent)
+            dot.create_text(11, 11, text=str(index), fill="#ffffff", font=theme.small_bold)
+            text.configure(fg=theme.ink, font=theme.body_bold)
         elif state == "failed":
-            dot.create_oval(2, 2, 22, 22, fill=theme.fail, outline=theme.fail)
-            dot.create_text(12, 12, text="!", fill="#ffffff", font=theme.small_bold)
-            text.configure(fg="#ffb3a7", font=theme.body)
+            dot.create_oval(2, 2, 20, 20, fill=theme.fail, outline=theme.fail)
+            dot.create_text(11, 11, text="!", fill="#ffffff", font=theme.small_bold)
+            text.configure(fg=theme.fail, font=theme.body)
         else:
-            dot.create_oval(2, 2, 22, 22, fill=theme.rail, outline="#3d4553", width=1)
-            dot.create_text(12, 12, text=str(index), fill="#79828f", font=theme.small)
-            text.configure(fg="#7f8896", font=theme.body)
+            dot.create_oval(2, 2, 20, 20, fill=surface, outline="#c7c7c7", width=1)
+            dot.create_text(11, 11, text=str(index), fill=theme.faint, font=theme.small)
+            text.configure(fg=theme.muted, font=theme.body)
 
 
 # --------------------------------------------------------------------------- #
@@ -237,16 +246,16 @@ class Banner(tk.Frame):
         self.bar = tk.Frame(self, bg=theme.fail, width=3)
         self.bar.pack(side="left", fill="y")
         self.label = tk.Label(
-            self, text="", bg="#fdf3f2", fg=theme.fail, font=theme.body, anchor="w",
+            self, text="", bg="#fde7e9", fg="#a4262c", font=theme.body, anchor="w",
             justify="left", wraplength=660, padx=12, pady=10,
         )
         self.label.pack(side="left", fill="both", expand=True)
 
     def show(self, text: str, kind: str = "error") -> None:
         palette = {
-            "error": (self.theme.fail, "#fdf3f2", self.theme.fail),
-            "warn": (self.theme.warn, "#fdf7ec", self.theme.warn),
-            "ok": (self.theme.ok, "#f1f8f3", self.theme.ok),
+            "error": (self.theme.fail, "#fde7e9", "#a4262c"),
+            "warn": (self.theme.warn, "#fff4ce", "#9d5d00"),
+            "ok": (self.theme.ok, "#dff6dd", self.theme.ok),
         }
         bar, background, foreground = palette.get(kind, palette["error"])
         self.bar.configure(bg=bar)
@@ -258,7 +267,7 @@ class Notice(tk.Frame):
     """Static note printed on a page (not a validation message)."""
 
     def __init__(self, master: tk.Misc, theme: Theme, text: str, kind: str = "warn") -> None:
-        colors = {"warn": (theme.warn, "#fdf7ec"), "info": (theme.accent, "#eef6fc")}
+        colors = {"warn": ("#c98a00", "#fff4ce"), "info": (theme.accent, "#f0f6fc")}
         bar, background = colors.get(kind, colors["warn"])
         super().__init__(master, bg=background)
         tk.Frame(self, bg=bar, width=3).pack(side="left", fill="y")
@@ -272,7 +281,7 @@ class Pill(tk.Label):
     """A small rounded badge, used for counts and states."""
 
     def __init__(self, master: tk.Misc, theme: Theme, text: str = "", kind: str = "info") -> None:
-        backgrounds = {"info": theme.accent_soft, "ok": "#eaf6ee", "warn": "#fdf3e2"}
+        backgrounds = {"info": theme.accent_soft, "ok": "#dff6dd", "warn": "#fff4ce"}
         foregrounds = {"info": theme.accent_press, "ok": theme.ok, "warn": theme.warn}
         super().__init__(
             master, text=text, bg=backgrounds.get(kind, theme.accent_soft),
@@ -345,7 +354,7 @@ class OptionCard(tk.Frame):
             self.marker.create_oval(1, 1, 15, 15, outline=self.theme.accent, width=2, fill=self.theme.panel)
             self.marker.create_oval(5, 5, 11, 11, outline=self.theme.accent, fill=self.theme.accent)
         else:
-            self.marker.create_oval(1, 1, 15, 15, outline="#c3c9d2", width=1, fill=self.theme.panel)
+            self.marker.create_oval(1, 1, 15, 15, outline="#8a8a8a", width=1, fill=self.theme.panel)
 
     def refresh(self) -> None:
         self._paint()
@@ -421,5 +430,8 @@ def bullets(master: tk.Misc, theme: Theme, items, wraplength: int = 600) -> tk.F
         tk.Label(
             row, text=text, bg=theme.panel, fg=theme.ink_soft, font=theme.body,
             anchor="w", justify="left", wraplength=wraplength,
-        ).pack(side="left", padx=(10, 0))
+        ).pack(side="left", fill="x", expand=True, padx=(10, 0))
+    # Every caller wants the list laid out where it was created, and forgetting
+    # to pack the returned frame leaves the bullets invisible.
+    box.pack(fill="x")
     return box

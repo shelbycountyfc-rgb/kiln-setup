@@ -52,7 +52,7 @@ class Installer:
         self._compact = None
 
         self.root = tk.Tk()
-        self.root.title("Arch Linux Installer")
+        self.root.title("Arch Linux Setup")
         self.theme = theme_module.apply(self.root)
         self._size_window()
         self._install_cursor()
@@ -159,7 +159,7 @@ class Installer:
 
     def _build_shell(self) -> None:
         theme = self.theme
-        outer = tk.Frame(self.root, bg=theme.panel)
+        outer = tk.Frame(self.root, bg=theme.canvas)
         outer.pack(fill="both", expand=True)
 
         self.rail = StepRail(outer, theme)
@@ -185,8 +185,9 @@ class Installer:
         footer.pack(side="bottom", fill="x")
         tk.Frame(main, bg=theme.line, height=1).pack(side="bottom", fill="x")
 
+        # Windows Setup puts the buttons on the grey chrome below a white sheet.
         strip = tk.Frame(footer, bg=theme.footer)
-        strip.pack(fill="x", padx=36, pady=16)
+        strip.pack(fill="x", padx=32, pady=14)
         self._strip = strip
         self.footer_note = tk.Label(
             strip, text="", bg=theme.footer, fg=theme.faint, font=theme.small,
@@ -196,7 +197,7 @@ class Installer:
         self.next_button = ttk.Button(strip, text="Next", style="Accent.TButton", command=self.go_next)
         self.next_button.pack(side="right")
         self.back_button = ttk.Button(strip, text="Back", style="Secondary.TButton", command=self.go_back)
-        self.back_button.pack(side="right", padx=(0, 10))
+        self.back_button.pack(side="right", padx=(0, 8))
 
         header = tk.Frame(main, bg=theme.panel)
         header.pack(side="top", fill="x", padx=36, pady=(22, 0))
@@ -231,9 +232,9 @@ class Installer:
         if compact == self._compact:
             return
         self._compact = compact
-        padding = 20 if compact else 36
+        padding = 20 if compact else 32
         try:
-            self.rail.configure(width=190 if compact else 248)
+            self.rail.configure(width=200 if compact else 236)
             self._header.pack_configure(padx=padding)
             self.body.pack_configure(padx=padding)
             self._strip.pack_configure(padx=padding)
