@@ -12,7 +12,7 @@ GIB = 1024 ** 3
 
 def _check() -> int:
     """Print what the installer detects and the layout it would create."""
-    from . import disk, hardware, packages
+    from . import adapt, disk, hardware, packages
     from .config import InstallConfig
     from .context import Context, Logger, human_bytes
 
@@ -26,6 +26,11 @@ def _check() -> int:
         info = gpu.to_dict()
         print("Graphics : %s %s" % (info["vendor"], info["device"]))
     print("Network  : %s" % (", ".join(hw.network) or "none"))
+    print("Form     : %s" % hw.form_factor)
+    chosen = adapt.recommend(hw, live={})
+    print("Chosen   : desktop=%s kernel=%s swap=%s GB" % (
+        chosen.values["desktop"], chosen.values["kernel"], chosen.values["swapGb"]))
+    print("Extras   : %s" % (" ".join(chosen.packages) or "none"))
     if not hw.disks:
         print("Disks    : none found (is this a live medium?)")
         return 0

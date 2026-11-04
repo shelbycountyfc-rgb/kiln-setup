@@ -185,6 +185,9 @@ class HardwarePage(Page):
             ("Graphics", ", ".join("%s %s" % (g.vendor, g.device) for g in hw.gpus) or "not detected"),
             ("Network", ", ".join(hw.network) or "not detected"),
             ("Audio", ", ".join(hw.audio) or "not detected"),
+            ("Form factor", hw.form_factor),
+            ("Bluetooth", "adapter found" if hw.bluetooth else "not detected"),
+            ("Touchpad", "found" if hw.touchpad else "not detected"),
         ]
         for label, value in rows:
             row = tk.Frame(specs.body, bg=theme.panel)
@@ -196,6 +199,35 @@ class HardwarePage(Page):
             tk.Label(
                 row, text=value, bg=theme.panel, fg=theme.ink_soft, font=theme.body,
                 anchor="w", justify="left", wraplength=520,
+            ).pack(side="left", fill="x", expand=True)
+
+        chosen = Card(
+            body, theme, "Chosen for this computer",
+            "Filled in from the hardware above. Every answer can be changed on the next pages.",
+        )
+        chosen.pack(fill="x", pady=(0, 16))
+        for label, text in self.app.recommendation.notes:
+            row = tk.Frame(chosen.body, bg=theme.panel)
+            row.pack(fill="x", pady=(0, 6))
+            tk.Label(
+                row, text=label, bg=theme.panel, fg=theme.muted, font=theme.small,
+                width=16, anchor="w",
+            ).pack(side="left")
+            tk.Label(
+                row, text=text, bg=theme.panel, fg=theme.ink_soft, font=theme.body,
+                anchor="w", justify="left", wraplength=520,
+            ).pack(side="left", fill="x", expand=True)
+        if self.app.recommendation.packages:
+            row = tk.Frame(chosen.body, bg=theme.panel)
+            row.pack(fill="x", pady=(0, 6))
+            tk.Label(
+                row, text="Also installed", bg=theme.panel, fg=theme.muted,
+                font=theme.small, width=16, anchor="w",
+            ).pack(side="left")
+            tk.Label(
+                row, text=", ".join(self.app.recommendation.packages), bg=theme.panel,
+                fg=theme.ink_soft, font=theme.body, anchor="w", justify="left",
+                wraplength=520,
             ).pack(side="left", fill="x", expand=True)
 
         disks = Card(body, theme, "Storage", "Removable media are listed but not offered as a target.")

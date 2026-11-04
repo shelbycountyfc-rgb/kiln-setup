@@ -88,6 +88,9 @@ class HardwareProfile:
     gpus: list = field(default_factory=list)
     network: list = field(default_factory=list)
     audio: list = field(default_factory=list)
+    battery: bool = False
+    bluetooth: bool = False
+    touchpad: bool = False
 
     # -- derived values the pages and the engine use ------------------------
     @property
@@ -107,6 +110,11 @@ class HardwareProfile:
             return "AMD"
         return self.cpu_vendor or "Unknown"
 
+    @property
+    def form_factor(self) -> str:
+        """A machine with a battery is a laptop, whatever its chassis says."""
+        return "Laptop" if self.battery else "Desktop"
+
     def internal_disks(self) -> list:
         return [d for d in self.disks if not d.removable]
 
@@ -125,6 +133,10 @@ class HardwareProfile:
             "gpus": [g.to_dict() for g in self.gpus],
             "network": self.network,
             "audio": self.audio,
+            "battery": self.battery,
+            "bluetooth": self.bluetooth,
+            "touchpad": self.touchpad,
+            "formFactor": self.form_factor,
         }
 
 
@@ -317,6 +329,28 @@ def _audio(hw: HardwareProfile) -> None:
             hw.audio.append(name)
 
 
+def _peripherals(hw: HardwareProfile) -> None:
+    """Laptop and accessory facts the software choices depend on."""
+    base = "/sys/class/power_supply"
+    try:
+        hw.battery = any(name.startswith("BAT") for name in os.listdir(base))
+    except OSError:
+        hw.battery = False
+
+    # /sys/class/bluetooth only has entries when an adapter registered.
+    try:
+        hw.bluetooth = any(name.startswith("hci") for name in os.listdir("/sys/class/bluetooth"))
+    except OSError:
+        hw.bluetooth = False
+
+    names = [
+        line.split("=", 1)[-1].strip().lower()
+        for line in _read("/proc/bus/input/devices").splitlines()
+        if line.startswith("N: Name=")
+    ]
+    hw.touchpad = any("touchpad" in name or "synaptics" in name for name in names)
+
+
 def detect(ctx: Context) -> HardwareProfile:
     hw = HardwareProfile()
     _cpu(hw)
@@ -326,6 +360,7 @@ def detect(ctx: Context) -> HardwareProfile:
     _gpus(ctx, hw)
     _network(hw)
     _audio(hw)
+    _peripherals(hw)
     if not hw.ram_bytes:
         # A container without /proc/meminfo should still show something sane.
         hw.ram_bytes = 4 * 1024 ** 3
@@ -345,6 +380,9 @@ def simulate() -> HardwareProfile:
         gpus=[Gpu(vendor="AMD", device="Radeon 780M", driver="amdgpu")],
         network=["wlan0 (Wi-Fi)", "enp1s0 (Ethernet)"],
         audio=["card0 (HDMI)", "card1 (Analog)"],
+        battery=True,
+        bluetooth=True,
+        touchpad=True,
     )
     disk = Disk(
         device="/dev/nvme0n1",

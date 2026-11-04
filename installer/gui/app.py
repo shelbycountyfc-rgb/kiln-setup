@@ -8,10 +8,9 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from .. import __version__, hardware
+from .. import __version__, adapt, hardware
 from ..config import InstallConfig
 from ..context import Context, Logger
-from ..disk import recommended_swap
 from ..orchestrator import Session
 from . import theme as theme_module
 from .pages import (
@@ -26,9 +25,6 @@ from .pages import (
     WelcomePage,
 )
 from .widgets import StepRail, fit_labels
-
-GIB = 1024 ** 3
-
 
 class Installer:
     """Owns the window, the collected answers and the running installation."""
@@ -72,6 +68,8 @@ class Installer:
             self.logger.log("detecting the hardware of this machine", "step")
             self.hardware = hardware.detect(self.ctx)
 
+        # The wizard starts from what this machine needs, not from fixed values.
+        self.recommendation = adapt.recommend(self.hardware)
         self.form = self._defaults()
         self._form_vars: dict = {}
 
@@ -133,26 +131,27 @@ class Installer:
         hw = self.hardware
         internal = hw.internal_disks() or list(hw.disks)
         disk = max(internal, key=lambda item: item.size).device if internal else ""
+        chosen = self.recommendation.values
         return {
             "disk": disk,
             "mode": "erase",
             "confirmErase": False,
-            "efi": hw.firmware == "uefi",
-            "bootloader": "auto",
+            "efi": chosen["efi"],
+            "bootloader": chosen["bootloader"],
             "rootFs": "ext4",
             "swap": True,
-            "swapGb": round(recommended_swap(hw.ram_bytes) / GIB, 1),
+            "swapGb": chosen["swapGb"],
             "espGb": 1.0,
             "separateHome": False,
             "hostname": "archlinux",
-            "timezone": "UTC",
-            "locale": "en_US.UTF-8",
-            "keymap": "us",
-            "desktop": "kde",
-            "kernel": "linux",
-            "microcode": "auto",
+            "timezone": chosen["timezone"],
+            "locale": chosen["locale"],
+            "keymap": chosen["keymap"],
+            "desktop": chosen["desktop"],
+            "kernel": chosen["kernel"],
+            "microcode": chosen["microcode"],
             "multilib": True,
-            "packages": [],
+            "packages": list(self.recommendation.packages),
             "rootPassword": "",
             "user": None,
             "wifiSsid": "",

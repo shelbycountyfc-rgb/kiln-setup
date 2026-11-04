@@ -131,6 +131,8 @@ def enable_services(ctx: Context, cfg: InstallConfig) -> None:
         ctx.chroot("systemctl enable libvirtd", check=False)
     if "tlp" in cfg.packages:
         ctx.chroot("systemctl enable tlp", check=False)
+    if "power-profiles-daemon" in cfg.packages:
+        ctx.chroot("systemctl enable power-profiles-daemon", check=False)
     if "fwupd" in cfg.packages:
         ctx.chroot("systemctl enable fwupd-refresh.timer", check=False)
 
