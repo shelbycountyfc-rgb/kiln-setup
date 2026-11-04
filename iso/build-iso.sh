@@ -71,6 +71,12 @@ trap cleanup EXIT INT TERM
 [[ "$(id -u)" -eq 0 ]] || die "mkarchiso needs root (it mounts loop devices)"
 command -v mkarchiso >/dev/null 2>&1 \
   || die "mkarchiso is missing: install the 'archiso' package (pacman -S archiso)"
+# mkarchiso only warns when mmd/mcopy are missing and then drops the UEFI boot
+# mode, leaving a BIOS-only image that a UEFI machine cannot start at all.
+for tool in mmd mcopy; do
+  command -v "$tool" >/dev/null 2>&1 \
+    || die "$tool is missing: install mtools, or the image gets no UEFI boot entry"
+done
 
 mkdir -p "$OUT_DIR"
 [[ -z "$WORK_DIR" ]] && WORK_DIR="$(mktemp -d /tmp/arch-gui-installer.XXXXXX)"
@@ -194,10 +200,13 @@ if command -v xorriso >/dev/null 2>&1; then
   listing="$(xorriso -indev "$IMAGE" -find /arch/boot -maxdepth 2 -type f 2>/dev/null || true)"
   grep -q 'vmlinuz' <<<"$listing" || die "no kernel in the image"
   grep -q 'initramfs' <<<"$listing" || die "no initramfs in the image"
-  grep -qi 'uefi' <<<"$(xorriso -indev "$IMAGE" -report_el_torito plain 2>/dev/null || true)" \
-    || warn "the image reports no UEFI boot entry"
-  grep -qi 'bios' <<<"$(xorriso -indev "$IMAGE" -report_el_torito plain 2>/dev/null || true)" \
-    || warn "the image reports no BIOS boot entry"
+  # A missing boot entry is not cosmetic: a UEFI machine cannot start a BIOS-only
+  # image at all, and a BIOS machine cannot start a UEFI-only one.
+  torito="$(xorriso -indev "$IMAGE" -report_el_torito plain 2>/dev/null || true)"
+  grep -qi 'uefi' <<<"$torito" \
+    || die "the image has no UEFI boot entry: a UEFI machine cannot boot it (install mtools)"
+  grep -qi 'bios' <<<"$torito" \
+    || die "the image has no BIOS boot entry: a legacy machine cannot boot it"
 
   # The installer is inside the squashfs, not in the ISO directory tree: the
   # ISO only carries /arch/x86_64/airootfs.sfs and the boot files.  Check the

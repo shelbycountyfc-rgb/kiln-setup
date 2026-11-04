@@ -24,6 +24,9 @@ docker run --rm --privileged \
   "$IMAGE" \
   bash -lc '
     set -Eeuo pipefail
-    pacman -Sy --noconfirm --needed archiso mkinitcpio python
+    # mtools is what mkarchiso uses to build the EFI system partition image;
+    # without it it silently produces a BIOS-only ISO that UEFI machines
+    # cannot boot at all.
+    pacman -Sy --noconfirm --needed archiso mkinitcpio python mtools dosfstools
     ./iso/build-iso.sh --out /build/out
   '

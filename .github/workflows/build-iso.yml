@@ -40,7 +40,9 @@ jobs:
             archlinux:latest \
             bash -lc '
               set -euo pipefail
-              pacman -Sy --noconfirm --needed archiso mkinitcpio python
+              # mtools builds the EFI system partition image; without it mkarchiso
+              # silently drops the UEFI boot mode and the ISO will not boot on UEFI.
+              pacman -Sy --noconfirm --needed archiso mkinitcpio python mtools dosfstools
               ./iso/build-iso.sh --out /build/out
             '
 
