@@ -216,7 +216,7 @@ mkarchiso -v -w "$WORK_DIR/mkarchiso" -o "$OUT_DIR" -P "$JOBS" "$PROFILE"
 # Newest by modification time, not by name: a revision suffix such as -r2 sorts
 # before the plain name, and picking the wrong file checksums yesterday's image.
 mapfile -t built < <(
-  find "$OUT_DIR" -maxdepth 1 -name 'arch-gui-installer-*.iso' -printf '%T@ %p\n' 2>/dev/null \
+  find "$OUT_DIR" -maxdepth 1 -name 'arch-gui-installer-*.iso' -printf '%T@ %f\n' 2>/dev/null \
     | sort -n | cut -d' ' -f2-
 )
 [[ ${#built[@]} -gt 0 ]] || die "mkarchiso finished but produced no image in $OUT_DIR"
