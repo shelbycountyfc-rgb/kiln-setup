@@ -36,8 +36,12 @@ class ScrollArea(tk.Frame):
         self._window = self.canvas.create_window((0, 0), window=self.body, anchor="nw")
         self.body.bind("<Configure>", self._body_resized)
         self.canvas.bind("<Configure>", self._canvas_resized)
-        self.canvas.bind("<Enter>", self._wheel_on)
-        self.canvas.bind("<Leave>", self._wheel_off)
+        # Bind once for the whole application and scroll only when the pointer is
+        # inside this area.  Binding Enter/Leave on the canvas instead stops the
+        # wheel the moment the pointer is over a card or an entry -- which is
+        # most of the page, so anything below the fold can never be reached.
+        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self.canvas.bind_all(sequence, self._wheel, add="+")
 
     def _body_resized(self, _event: tk.Event) -> None:
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
@@ -49,15 +53,23 @@ class ScrollArea(tk.Frame):
     def _on_scroll(self, first: str, last: str) -> None:
         self.scrollbar.set(first, last)
 
-    def _wheel_on(self, _event: tk.Event | None = None) -> None:
-        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
-            self.canvas.bind_all(sequence, self._wheel)
-
-    def _wheel_off(self, _event: tk.Event | None = None) -> None:
-        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
-            self.canvas.unbind_all(sequence)
+    def _owns(self, widget: tk.Misc | None) -> bool:
+        """True when *widget* is this area or sits inside it."""
+        while widget is not None:
+            if widget is self:
+                return True
+            widget = getattr(widget, "master", None)
+        return False
 
     def _wheel(self, event: tk.Event) -> None:
+        # Every scroll area answers this binding; only the one under the pointer
+        # should move.
+        try:
+            under = self.winfo_containing(event.x_root, event.y_root)
+        except (tk.TclError, KeyError, AttributeError):
+            under = None
+        if under is None or not self._owns(under):
+            return
         number = getattr(event, "num", None)
         if number == 4:
             step = -1

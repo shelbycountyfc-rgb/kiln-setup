@@ -424,6 +424,37 @@ class SystemPage(Page):
         theme = self.theme
         form_data = self.app.form
 
+        # The accounts card is first on purpose: the sheet is around 560 pixels
+        # tall, so a required password that starts below the fold reads as if the
+        # installer never asks for one.
+        accounts = Card(
+            body, theme, "Accounts",
+            "The root password is required; a daily account is strongly recommended.",
+        )
+        accounts.pack(fill="x", pady=(0, 16))
+        form = Form(accounts.body, theme)
+        form.pack(fill="x")
+
+        holder = form.field("Root password", "At least 8 characters.")
+        self.root_password = tk.StringVar()
+        ttk.Entry(holder, textvariable=self.root_password, show="\u2022", width=32).pack(side="left")
+
+        holder = form.field("Repeat password")
+        self.root_password2 = tk.StringVar()
+        ttk.Entry(holder, textvariable=self.root_password2, show="\u2022", width=32).pack(side="left")
+
+        holder = form.field("Your name", "The daily account, added to wheel, audio, video and storage.")
+        self.username = tk.StringVar(value=(form_data.get("user") or {}).get("name", ""))
+        ttk.Entry(holder, textvariable=self.username, width=32).pack(side="left")
+
+        holder = form.field("Password")
+        self.user_password = tk.StringVar()
+        ttk.Entry(holder, textvariable=self.user_password, show="\u2022", width=32).pack(side="left")
+
+        holder = form.field("Repeat password")
+        self.user_password2 = tk.StringVar()
+        ttk.Entry(holder, textvariable=self.user_password2, show="\u2022", width=32).pack(side="left")
+
         computer = Card(body, theme, "Computer")
         computer.pack(fill="x", pady=(0, 16))
         form = Form(computer.body, theme)
@@ -454,31 +485,6 @@ class SystemPage(Page):
         )
         combo.pack(side="left")
         self._bootloader_labels = labels
-
-        accounts = Card(body, theme, "Accounts", "The root password is required; a daily account is strongly recommended.")
-        accounts.pack(fill="x", pady=(0, 16))
-        form = Form(accounts.body, theme)
-        form.pack(fill="x")
-
-        holder = form.field("Root password", "At least 8 characters.")
-        self.root_password = tk.StringVar()
-        ttk.Entry(holder, textvariable=self.root_password, show="\u2022", width=32).pack(side="left")
-
-        holder = form.field("Repeat password")
-        self.root_password2 = tk.StringVar()
-        ttk.Entry(holder, textvariable=self.root_password2, show="\u2022", width=32).pack(side="left")
-
-        holder = form.field("Your name", "The daily account, added to wheel, audio, video and storage.")
-        self.username = tk.StringVar(value=(form_data.get("user") or {}).get("name", ""))
-        ttk.Entry(holder, textvariable=self.username, width=32).pack(side="left")
-
-        holder = form.field("Password")
-        self.user_password = tk.StringVar()
-        ttk.Entry(holder, textvariable=self.user_password, show="\u2022", width=32).pack(side="left")
-
-        holder = form.field("Repeat password")
-        self.user_password2 = tk.StringVar()
-        ttk.Entry(holder, textvariable=self.user_password2, show="\u2022", width=32).pack(side="left")
 
         network = Card(
             body, theme, "Wi-Fi",
