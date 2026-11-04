@@ -124,7 +124,15 @@ class InstallConfig:
         return self.desktop != "minimal"
 
     # -- validation --------------------------------------------------------
+    # Each page checks only the answers it collects.  A page that reports the
+    # empty root password while offering no field for it is a dead end: that is
+    # exactly how the installer became impossible to get past the Disk step.
     def validate(self, disk_size: int = 0) -> list:
+        """Every problem, for the last check before anything is written."""
+        return self.disk_errors(disk_size) + self.software_errors() + self.system_errors()
+
+    def disk_errors(self, disk_size: int = 0) -> list:
+        """Only the answers collected on the Disk page."""
         errors = []
         if self.mode != "erase":
             errors.append("Only a whole-disk installation is supported.")
@@ -142,12 +150,38 @@ class InstallConfig:
             errors.append("Unknown boot loader %r." % self.bootloader)
         if not self.efi and self.resolved_bootloader == "systemd-boot":
             errors.append("systemd-boot needs UEFI. Choose GRUB on a legacy BIOS machine.")
+        if not 0.1 <= self.esp_gb <= 4:
+            errors.append("The EFI system partition must be between 0.1 and 4 GiB.")
+        if self.swap_gb is not None and not 0 <= self.swap_gb <= 4096:
+            errors.append("Swap size is out of range.")
+        return errors
+
+    def software_errors(self) -> list:
+        """Only the answers collected on the Software page."""
+        errors = []
         if self.desktop not in options.DESKTOPS:
             errors.append("Unknown desktop %r." % self.desktop)
         if self.kernel not in options.KERNELS:
             errors.append("Unknown kernel %r." % self.kernel)
         if self.microcode not in options.MICROCODE:
             errors.append("Unknown microcode choice %r." % self.microcode)
+        seen = set()
+        for package in self.packages:
+            if not PACKAGE_RE.match(package):
+                errors.append("Invalid package name %r." % package)
+            elif package in seen:
+                errors.append("%s was selected twice." % package)
+            seen.add(package)
+        for package in self.packages:
+            if is_multilib_package(package) and not self.multilib:
+                errors.append(
+                    "%s needs 32-bit libraries: turn on multilib in Software." % package
+                )
+        return errors
+
+    def system_errors(self) -> list:
+        """Only the answers collected on the System page, passwords included."""
+        errors = []
         if not HOSTNAME_RE.match(self.hostname):
             errors.append("Hostname may only contain letters, digits and hyphens.")
         if not TIMEZONE_RE.match(self.timezone) or ".." in self.timezone:
@@ -168,22 +202,6 @@ class InstallConfig:
             for group in self.user.groups:
                 if not GROUP_RE.match(group):
                     errors.append("Invalid group name %r." % group)
-        seen = set()
-        for package in self.packages:
-            if not PACKAGE_RE.match(package):
-                errors.append("Invalid package name %r." % package)
-            elif package in seen:
-                errors.append("%s was selected twice." % package)
-            seen.add(package)
-        for package in self.packages:
-            if is_multilib_package(package) and not self.multilib:
-                errors.append(
-                    "%s needs 32-bit libraries: turn on multilib in Software." % package
-                )
-        if not 0.1 <= self.esp_gb <= 4:
-            errors.append("The EFI system partition must be between 0.1 and 4 GiB.")
-        if self.swap_gb is not None and not 0 <= self.swap_gb <= 4096:
-            errors.append("Swap size is out of range.")
         if self.wifi_ssid:
             if len(self.wifi_ssid) > 32:
                 errors.append("A Wi-Fi network name cannot be longer than 32 characters.")

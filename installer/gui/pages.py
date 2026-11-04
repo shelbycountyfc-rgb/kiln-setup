@@ -407,7 +407,7 @@ class DiskPage(Page):
             config = InstallConfig.from_dict(self.app.form)
         except (TypeError, ValueError) as error:
             return ["The answers could not be read: %s" % error]
-        return config.validate(disk_size=size)
+        return config.disk_errors(disk_size=size)
 
 
 # --------------------------------------------------------------------------- #
@@ -527,6 +527,14 @@ class SystemPage(Page):
     def errors(self) -> list:
         form = self.app.form
         problems = []
+        try:
+            config = InstallConfig.from_dict(form)
+        except (TypeError, ValueError) as error:
+            problems.append("The answers could not be read: %s" % error)
+        else:
+            problems.extend(
+                problem for problem in config.system_errors() if problem not in problems
+            )
         if self.root_password.get() != self.root_password2.get():
             problems.append("The two root passwords do not match.")
         if self.username.get().strip():
@@ -777,6 +785,14 @@ class SoftwarePage(Page):
                 )
         if not self.app.hardware.disks:
             problems.append("No disk was detected, so there is nothing to install on.")
+        try:
+            config = InstallConfig.from_dict(self.app.form)
+        except (TypeError, ValueError) as error:
+            problems.append("The answers could not be read: %s" % error)
+        else:
+            problems.extend(
+                problem for problem in config.software_errors() if problem not in problems
+            )
         return problems
 
 
