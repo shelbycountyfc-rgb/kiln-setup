@@ -225,7 +225,24 @@ def install_size_hint(packages: list) -> str:
 # --------------------------------------------------------------------------- #
 # Running pacman
 # --------------------------------------------------------------------------- #
+def ensure_keyring(ctx: Context) -> None:
+    """Make sure the live keyring can verify signatures before pacstrap runs.
+
+    A medium whose keyring was never populated fails inside pacstrap with
+    "required key missing from keyring", which says nothing about the cause.
+    Populating first turns that dead end into a few seconds of work.
+    """
+    if ctx.dry_run:
+        return
+    if not os.path.exists("/etc/pacman.d/gnupg/trustdb.gpg"):
+        ctx.log.log("initialising the pacman keyring", "step")
+        ctx.run(["pacman-key", "--init"], check=False)
+    ctx.log.log("populating the pacman keyring", "step")
+    ctx.run(["pacman-key", "--populate", "archlinux"], check=False)
+
+
 def pacstrap(ctx: Context, cfg: InstallConfig, packages: list) -> None:
+    ensure_keyring(ctx)
     ctx.log.log("pacstrap: %s" % install_size_hint(packages), "step")
     ctx.run(["pacstrap", "-K", ctx.target] + list(packages))
 
