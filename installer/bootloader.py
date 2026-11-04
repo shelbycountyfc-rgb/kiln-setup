@@ -83,6 +83,53 @@ def entry_text(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _fix_grub_paths(ctx: Context, cfg: InstallConfig) -> None:
+    """Make every kernel path in grub.cfg exist where GRUB will look for it.
+
+    grub-mkconfig writes the kernel paths from how /boot happened to be mounted
+    while it ran (``/vmlinuz-linux`` when /boot is its own file system,
+    ``/boot/vmlinuz-linux`` when it is not).  If that disagrees with the file
+    system GRUB actually reads, every entry fails with "file not found" and the
+    menu simply reappears.  Rewrite the paths that do not resolve.
+    """
+    if ctx.dry_run:
+        return
+    text = ctx.read_target("boot/grub/grub.cfg")
+    if not text:
+        return
+    base = ctx.target_path("boot") if cfg.efi else ctx.target
+    changes = []
+    lines = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        for keyword in ("linux", "linuxefi", "initrd", "initrdefi"):
+            if not stripped.startswith(keyword + " "):
+                continue
+            fields = stripped.split()
+            if len(fields) >= 2:
+                path = fields[1].strip('"')
+                if not os.path.exists(os.path.join(base, path.lstrip("/"))):
+                    alternative = (
+                        path[len("/boot"):]
+                        if path.startswith("/boot/")
+                        else "/boot" + path
+                    )
+                    if os.path.exists(os.path.join(base, alternative.lstrip("/"))):
+                        changes.append((path, alternative))
+                        line = line.replace(path, alternative, 1)
+            break
+        lines.append(line)
+    if not changes:
+        return
+    ctx.write_target("boot/grub/grub.cfg", "\n".join(lines) + "\n")
+    for old, new in changes:
+        ctx.log.log(
+            "grub.cfg pointed at %s, which is not in the file system GRUB reads; "
+            "changed it to %s" % (old, new),
+            "warn",
+        )
+
+
 def _verify_kernel(ctx: Context, cfg: InstallConfig) -> None:
     """The kernel and initramfs the entry names must exist under /boot."""
     boot = ctx.target_path("boot")
@@ -137,6 +184,7 @@ def install_grub(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
         ctx.chroot("grub-install --target=i386-pc --recheck %s" % layout.disk)
     ctx.chroot("grub-mkconfig -o /boot/grub/grub.cfg")
     _verify_kernel(ctx, cfg)
+    _fix_grub_paths(ctx, cfg)
     if ctx.dry_run:
         return
     config = ctx.read_target("boot/grub/grub.cfg")
