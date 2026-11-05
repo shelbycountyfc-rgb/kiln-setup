@@ -57,7 +57,7 @@ class Installer:
         self._size_window()
         self._install_cursor()
 
-        self.logger = Logger(None if self.dry_run else "/var/log/arch-installer-ui.log")
+        self.logger = Logger(None if self.dry_run else "/var/log/kiln-setup-ui.log")
         self.ctx = Context(self.logger, dry_run=self.dry_run)
         # The package search must talk to the real repositories even while the
         # installation itself is only being simulated.

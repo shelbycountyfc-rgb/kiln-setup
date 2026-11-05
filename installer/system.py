@@ -12,14 +12,14 @@ from .context import Context
 from .hardware import HardwareProfile
 from .disk import DiskPlan
 
-LOG_PATH = "/var/log/arch-installer.log"
+LOG_PATH = "/var/log/kiln-setup.log"
 
 #: Where the live medium keeps both packages (installer and control panel).
-MEDIUM_ROOT = "/opt/arch-installer"
+MEDIUM_ROOT = "/opt/kiln-setup"
 
 PANEL_LAUNCHER = """#!/bin/sh
 # Arch Control Panel launcher (installed by the Arch GUI installer).
-PYTHONPATH=/opt/arch-installer
+PYTHONPATH=/opt/kiln-setup
 export PYTHONPATH
 exec /usr/bin/python3 -m panel "$@"
 """
@@ -29,7 +29,7 @@ Type=Application
 Name=Arch Control Panel
 GenericName=System Settings
 Comment=Manage software, services, users and network
-Exec=/usr/local/bin/arch-control-panel
+Exec=/usr/local/bin/kiln-panel
 Icon=preferences-system
 Terminal=false
 Categories=Settings;System;
@@ -150,12 +150,12 @@ def install_panel(ctx: Context, cfg: InstallConfig) -> None:
     """Copy the control panel into the new system and give it a launcher.
 
     The panel shares the installer's theme, catalogue and pacman helpers, so both
-    Python packages are installed side by side under /opt/arch-installer.
+    Python packages are installed side by side under /opt/kiln-setup.
     """
     if not os.path.isdir(MEDIUM_ROOT) and not ctx.dry_run:
         ctx.log.log("the control panel is not on this medium; skipping it", "warn")
         return
-    destination = ctx.target_path("opt/arch-installer")
+    destination = ctx.target_path("opt/kiln-setup")
     ctx.log.log("installing the control panel into %s" % destination, "step")
     if not ctx.dry_run:
         try:
@@ -170,15 +170,15 @@ def install_panel(ctx: Context, cfg: InstallConfig) -> None:
             # A missing panel must not fail an otherwise finished installation.
             ctx.log.log("could not copy the control panel: %s" % error, "warn")
             return
-    ctx.write_target("usr/local/bin/arch-control-panel", PANEL_LAUNCHER, mode=0o755)
-    ctx.write_target("usr/share/applications/arch-control-panel.desktop", PANEL_DESKTOP, mode=0o644)
+    ctx.write_target("usr/local/bin/kiln-panel", PANEL_LAUNCHER, mode=0o755)
+    ctx.write_target("usr/share/applications/kiln-panel.desktop", PANEL_DESKTOP, mode=0o644)
 
 
 def copy_log(ctx: Context, path: str = LOG_PATH) -> None:
     if ctx.dry_run or not os.path.exists(path):
         return
     ctx.run(
-        ["install", "-D", "-m", "644", path, ctx.target_path("var/log/arch-installer.log")],
+        ["install", "-D", "-m", "644", path, ctx.target_path("var/log/kiln-setup.log")],
         check=False,
         quiet=True,
     )

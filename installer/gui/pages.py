@@ -1134,7 +1134,7 @@ class ProgressPage(Page):
             )
             self._phase_ids.append((pid, item))
 
-        log_card = Card(body, theme, "Log", "The same lines are written to /var/log/arch-installer.log.")
+        log_card = Card(body, theme, "Log", "The same lines are written to /var/log/kiln-setup.log.")
         log_card.pack(fill="both", expand=True)
         self.log = tk.Text(
             log_card.body, height=12, bg=theme.mono_bg, fg=theme.mono_fg, bd=0,
@@ -1212,7 +1212,7 @@ class FinishPage(Page):
     name = "finish"
     title = "Arch Linux is installed"
     subtitle = "Remove the installation medium and restart into the new system."
-    footer_note = "The installation log is kept at /var/log/arch-installer.log in the new system."
+    footer_note = "The installation log is kept at /var/log/kiln-setup.log in the new system."
     next_text = "Close"
     show_back = False
 

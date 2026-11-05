@@ -802,6 +802,6 @@ class AboutPage(PanelPage):
 
         tk.Label(
             body,
-            text="Installed from the Arch GUI installer  \u00b7  launcher: arch-control-panel",
+            text="Installed from the Arch GUI installer  \u00b7  launcher: kiln-panel",
             bg=theme.panel, fg=theme.faint, font=theme.small, anchor="w",
         ).pack(fill="x", pady=(14, 0))

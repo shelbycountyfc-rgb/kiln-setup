@@ -6,7 +6,7 @@
 
 iso_name="kiln-setup"
 iso_label="KILN_SETUP"
-iso_publisher="Kiln Setup, unofficial <https://github.com/shelbycountyfc-rgb/arch-gui-installer>"
+iso_publisher="Kiln Setup, unofficial <https://github.com/shelbycountyfc-rgb/kiln-setup>"
 iso_application="Kiln Setup - an unofficial installer for Arch Linux"
 # A revision suffix lets a corrected medium be built beside the previous one,
 # which matters when the older image is still open on the build machine.
@@ -24,6 +24,6 @@ file_permissions=(
   ["/root"]="0:0:750"
   ["/root/.bash_profile"]="0:0:644"
   ["/root/.xinitrc"]="0:0:644"
-  ["/usr/local/bin/arch-installer-gui"]="0:0:755"
-  ["/usr/local/bin/arch-installer-session"]="0:0:755"
+  ["/usr/local/bin/kiln-setup"]="0:0:755"
+  ["/usr/local/bin/kiln-setup-session"]="0:0:755"
 )

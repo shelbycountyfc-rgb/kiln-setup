@@ -7,9 +7,9 @@
 # on UEFI (systemd-boot) and legacy BIOS (syslinux).
 #
 # What makes it an installer:
-#   /opt/arch-installer          this repository's Python package
-#   /usr/local/bin/arch-installer-gui
-#   /usr/local/bin/arch-installer-session
+#   /opt/kiln-setup          this repository's Python package
+#   /usr/local/bin/kiln-setup
+#   /usr/local/bin/kiln-setup-session
 #   /etc/systemd/system/getty@tty1.service.d/autologin.conf
 #   /root/.bash_profile          starts the session on tty1
 #
@@ -155,28 +155,28 @@ seed_initramfs_config() {
 seed_initramfs_config
 
 log "installing the Python installer into the live root"
-mkdir -p "$PROFILE/airootfs/opt/arch-installer"
-cp -a "$REPO_ROOT/installer" "$PROFILE/airootfs/opt/arch-installer/"
+mkdir -p "$PROFILE/airootfs/opt/kiln-setup"
+cp -a "$REPO_ROOT/installer" "$PROFILE/airootfs/opt/kiln-setup/"
 # The panel shares the installer's theme, catalogue and pacman helpers, and is
 # copied into the installed system during the finish phase: it has to be on the
 # medium even though it is not what the medium runs.
-cp -a "$REPO_ROOT/panel" "$PROFILE/airootfs/opt/arch-installer/"
-cp -a "$REPO_ROOT/README.md" "$PROFILE/airootfs/opt/arch-installer/"
-find "$PROFILE/airootfs/opt/arch-installer" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
-[[ -f "$PROFILE/airootfs/opt/arch-installer/installer/__main__.py" ]] \
+cp -a "$REPO_ROOT/panel" "$PROFILE/airootfs/opt/kiln-setup/"
+cp -a "$REPO_ROOT/README.md" "$PROFILE/airootfs/opt/kiln-setup/"
+find "$PROFILE/airootfs/opt/kiln-setup" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+[[ -f "$PROFILE/airootfs/opt/kiln-setup/installer/__main__.py" ]] \
   || die "the installer package did not get copied into the profile"
-[[ -f "$PROFILE/airootfs/opt/arch-installer/panel/__main__.py" ]] \
+[[ -f "$PROFILE/airootfs/opt/kiln-setup/panel/__main__.py" ]] \
   || die "the control panel did not get copied into the profile"
 
 chmod 0755 \
-  "$PROFILE/airootfs/usr/local/bin/arch-installer-session" \
-  "$PROFILE/airootfs/usr/local/bin/arch-installer-gui"
+  "$PROFILE/airootfs/usr/local/bin/kiln-setup-session" \
+  "$PROFILE/airootfs/usr/local/bin/kiln-setup"
 
 # A syntax error in the window would only show up as a black screen on the
 # finished medium, so the sources are compiled before the long build starts.
 if command -v python3 >/dev/null 2>&1; then
   log "checking the installer sources"
-  python3 -m compileall -q "$PROFILE/airootfs/opt/arch-installer/installer" \
+  python3 -m compileall -q "$PROFILE/airootfs/opt/kiln-setup/installer" \
     || die "the installer sources do not compile"
 else
   warn "python3 is not installed on the build host; skipping the source check"
@@ -265,11 +265,11 @@ if command -v xorriso >/dev/null 2>&1; then
   [[ -f "$rootfs" ]] || rootfs="$(find "$WORK_DIR" -name 'airootfs.sfs' -print -quit 2>/dev/null || true)"
   if [[ -n "$rootfs" && -f "$rootfs" ]] && command -v unsquashfs >/dev/null 2>&1; then
     live_listing="$(unsquashfs -l "$rootfs" 2>/dev/null || true)"
-    grep -q 'opt/arch-installer/installer/__main__.py' <<<"$live_listing" \
+    grep -q 'opt/kiln-setup/installer/__main__.py' <<<"$live_listing" \
       || die "the installer is not inside the live root"
-    grep -q 'usr/local/bin/arch-installer-gui' <<<"$live_listing" \
+    grep -q 'usr/local/bin/kiln-setup' <<<"$live_listing" \
       || die "the installer launcher is not inside the live root"
-    grep -q 'opt/arch-installer/panel/app.py' <<<"$live_listing" \
+    grep -q 'opt/kiln-setup/panel/app.py' <<<"$live_listing" \
       || die "the control panel is not inside the live root"
     grep -q 'etc/systemd/system/getty@tty1.service.d/autologin.conf' <<<"$live_listing" \
       || die "the autologin that starts the installer at boot is missing"

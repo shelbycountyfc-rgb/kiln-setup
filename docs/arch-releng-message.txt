@@ -46,7 +46,7 @@ Arch packages.
 The project keeps Arch's branding out of its own name and states in its window,
 its boot menu and its release notes that it is unofficial and unaffiliated.
 
-Repository: https://github.com/shelbycountyfc-rgb/arch-gui-installer
+Repository: https://github.com/shelbycountyfc-rgb/kiln-setup
 
 Thanks for the work on archiso and the release images - building a medium that
 boots on both firmware modes and still reaches a shell when something fails is

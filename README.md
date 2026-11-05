@@ -10,7 +10,7 @@ panel that manages the installed system afterwards. Both are native desktop
 applications (Python + Tk) — no browser, no local web server, nothing listening
 on a port.
 
-**[Download the installer image](https://github.com/shelbycountyfc-rgb/arch-gui-installer/releases/latest)**
+**[Download the installer image](https://github.com/shelbycountyfc-rgb/kiln-setup/releases/latest)**
 — built by CI and attached to the release together with its SHA-256 checksum.
 
 The installer follows the [official installation guide](https://wiki.archlinux.org/title/Installation_guide)
@@ -107,10 +107,10 @@ UEFI (systemd-boot) and legacy BIOS (syslinux). The installer starts by itself:
 ```
 tty1 autologin (root, systemd getty override)
    └─ /root/.bash_profile  (only on tty1, only without $DISPLAY)
-        └─ /usr/local/bin/arch-installer-session
+        └─ /usr/local/bin/kiln-setup-session
              └─ xinit :0 vt1  (no window manager, no browser)
                   └─ /root/.xinitrc
-                       └─ /usr/local/bin/arch-installer-gui
+                       └─ /usr/local/bin/kiln-setup
                             └─ python3 -m installer --kiosk
 ```
 
@@ -120,8 +120,8 @@ window closes normally the console gets the shell back.
 
 ## The control panel
 
-Installed into the new system at `/opt/arch-installer/panel`, launched as
-`arch-control-panel` or from the desktop menu ("Arch Control Panel"):
+Installed into the new system at `/opt/kiln-setup/panel`, launched as
+`kiln-panel` or from the desktop menu ("Arch Control Panel"):
 
 | Page | What it does |
 | --- | --- |
@@ -262,4 +262,4 @@ qemu-system-x86_64 -enable-kvm -m 4096 -bios /usr/share/edk2/x64/OVMF.4m.fd \
 ```
 
 and check, in order: the window appearing, the disk being listed, the layout
-preview, and the log at `/var/log/arch-installer.log` after the first phase.
+preview, and the log at `/var/log/kiln-setup.log` after the first phase.

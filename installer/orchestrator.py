@@ -21,7 +21,7 @@ from .config import InstallConfig
 from .context import Context, Logger
 from .hardware import HardwareProfile
 
-LOG_PATH = "/var/log/arch-installer.log"
+LOG_PATH = "/var/log/kiln-setup.log"
 GIB = 1024 ** 3
 
 #: (id, label, weight); the weights add up to 100, so the bar is an estimate

@@ -4,10 +4,10 @@
 
 ```
 tty1 autologin (root)
-   └─ /usr/local/bin/arch-installer-session
+   └─ /usr/local/bin/kiln-setup-session
         └─ xinit ──► Xorg :0                no window manager, no browser
              └─ /root/.xinitrc
-                  └─ /usr/local/bin/arch-installer-gui
+                  └─ /usr/local/bin/kiln-setup
                        └─ python3 -m installer
                             ├── hardware.detect()      once at start-up
                             ├── disk.plan_layout()     per disk/options change
@@ -151,8 +151,8 @@ The panel reuses `installer.gui.theme`, `installer.gui.widgets`,
 `installer.catalog`, `installer.packages` and `installer.options`, which is why
 it looks and behaves like the installer without a second copy of either. It is
 installed into the target as part of the finish phase
-(`system.install_panel`), together with `/usr/local/bin/arch-control-panel` and
-`/usr/share/applications/arch-control-panel.desktop`.
+(`system.install_panel`), together with `/usr/local/bin/kiln-panel` and
+`/usr/share/applications/kiln-panel.desktop`.
 
 Pages never run a command inline: `Panel.job` executes on a worker thread, an
 exception is delivered to the callback instead of raised, and the pages render

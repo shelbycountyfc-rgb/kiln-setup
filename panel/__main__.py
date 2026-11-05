@@ -34,12 +34,12 @@ def _check() -> int:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
-        prog="arch-control-panel",
+        prog="kiln-panel",
         description="%s: manage the installed Arch system (software, services, users, network)." % APP_NAME,
     )
     parser.add_argument("--kiosk", action="store_true", help="fill the screen")
     parser.add_argument("--check", action="store_true", help="print the system state and exit")
-    parser.add_argument("--version", action="version", version="arch-control-panel " + __version__)
+    parser.add_argument("--version", action="version", version="kiln-panel " + __version__)
     args = parser.parse_args(argv)
 
     if args.check:
