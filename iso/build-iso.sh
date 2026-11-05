@@ -294,8 +294,7 @@ log "done: $IMAGE ($(du -h "$IMAGE" | cut -f1))"
 # One image of this installer is enough; an older one beside it is how a machine
 # ends up booting last week's code.
 shopt -s nullglob
-for old in "$OUT_DIR"/"$ISO_NAME"-*.iso "$OUT_DIR"/"$ISO_NAME"-*.iso.sha256 \
-           "$OUT_DIR"/arch-gui-installer-*.iso "$OUT_DIR"/arch-gui-installer-*.iso.sha256; do
+for old in "$OUT_DIR"/*.iso "$OUT_DIR"/*.iso.sha256; do
   [[ "$(basename "$old")" == "$(basename "$IMAGE")" ]] && continue
   [[ "$(basename "$old")" == "$(basename "$IMAGE").sha256" ]] && continue
   # A previous image that is still open elsewhere (a VM, an antivirus scan)
