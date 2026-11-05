@@ -42,6 +42,7 @@ the engine never learns about widgets.
 | Welcome | Pre-installation | `hardware.detect` |
 | Hardware | Verify the boot mode | `hardware.detect` |
 | Disk | Partition the disks, format, mount | `disk.plan_layout`, `disk.apply_layout` |
+| Storage | Encrypted / LVM / RAID / Btrfs root | `disk.plan_layout`, `disk.apply_layout` |
 | System | Time, localization, network configuration | `system.configure`, `network.write_profiles` |
 | Software | Install essential packages | `catalog`, `packages.required_packages` |
 | Review | — | `InstallConfig.validate` |
@@ -52,16 +53,18 @@ the engine never learns about widgets.
 
 | Phase | Weight | Actions |
 | --- | --- | --- |
-| prepare | 3 | check the medium's tools, enable live `[multilib]`, size the disk, plan layout and package list |
-| disk | 10 | `swapoff`, unmount anything on the disk, `sgdisk --zap-all`, create GPT partitions, `mkfs`/`mkswap`, mount at `/mnt` |
-| pacstrap | 46 | `pacstrap -K /mnt` base + kernel + firmware + microcode + filesystem tools + boot loader + desktop |
-| extras | 6 | write the target's `pacman.conf` (with `[multilib]` when enabled), `pacman -Sy`, install `lib32-*`/Steam/Wine inside the chroot |
+| prepare | 3 | check the medium's tools, enable live `[multilib]`, refuse a cross-arch install, plan the storage stack and package list |
+| disk | 9 | `swapoff`, unmount, `sgdisk --zap-all` (or one partition in the free space), create partitions, `mdadm --create`, `cryptsetup luksFormat/open`, `pvcreate`/`vgcreate`/`lvcreate`, `mkfs`, Btrfs subvolumes, mount at `/mnt` |
+| pacstrap | 42 | `pacstrap -K /mnt` base + kernel + firmware + microcode + filesystem/storage tools + boot loader + desktop |
+| extras | 5 | write the target's `pacman.conf` (with `[multilib]` when enabled), `pacman -Sy`, install `lib32-*`/Steam/Wine inside the chroot |
 | fstab | 2 | `genfstab -U /mnt`, refuse to continue on an empty result |
-| locale | 5 | `ln -sf` zoneinfo, `hwclock --systohc`, `locale.gen` + `locale-gen`, `locale.conf`, `vconsole.conf`, hostname/hosts |
-| users | 4 | `chpasswd` for root over stdin, `useradd` + `chpasswd` for the daily account, `sudo` drop-in for `wheel` |
+| locale | 4 | `ln -sf` zoneinfo, `hwclock --systohc`, `locale.gen` + `locale-gen`, `locale.conf`, `vconsole.conf`, hostname/hosts |
+| crypto | 2 | rewrite `HOOKS` (`mdadm_udev` -> `encrypt` -> `lvm2`), `MODULES=(btrfs)`, write `/etc/crypttab` |
+| users | 3 | `chpasswd` for root over stdin, `useradd` + `chpasswd` for the daily account, `sudo` drop-in for `wheel` |
 | initramfs | 4 | `mkinitcpio -P` |
-| bootloader | 12 | systemd-boot (`bootctl` + loader entries) or GRUB (`grub-install`, `grub-mkconfig`) |
-| services | 5 | Wi-Fi profile, `systemctl enable NetworkManager`, display manager, optional `bluetooth`/`cups`/`docker`/`libvirtd`/`tlp`, `fstrim.timer` |
+| bootloader | 11 | systemd-boot (`bootctl` + loader entries) or GRUB (`grub-install` for this architecture, `grub-mkconfig`, os-prober when alongside), then sbctl signing |
+| aur | 6 | `base-devel` + build user, resolve AUR dependencies, `makepkg --syncdeps --install` per package |
+| services | 6 | Wi-Fi profile, `systemctl enable NetworkManager`, display manager, optional `bluetooth`/`cups`/`docker`/`libvirtd`/`tlp`, `fstrim.timer` |
 | finish | 3 | install the control panel, copy the log into the target, `swapoff`, `umount -R /mnt` |
 
 Weights add up to 100, so the bar is a weighted estimate rather than a timer.
@@ -88,6 +91,31 @@ a half-written filesystem on a disk the kernel still believes is partitioned.
 
 The ESP is mounted at `/boot` (the guide's example), which is what both
 systemd-boot and GRUB expect for kernel and initramfs placement.
+## Storage stack
+
+`disk.plan_layout()` produces a `DiskPlan` that carries the whole stack, so the
+window can show it, the pipeline can execute it and a dry run can walk the same
+code:
+
+```
+members[]            one MemberPlan per disk taking part (RAID) or one disk
+  └─ partitions[]    efi / bios / swap / root / home, with the LUKS type code
+md_device            /dev/md0 when raid != none      (mdadm --create, bitmap)
+luks_uuid            UUID of the container, used by cryptdevice= and crypttab
+mapper               /dev/mapper/cryptroot or /dev/vg0/root (final root device)
+subvolumes           (@, /), (@home, /home), (@log, /var/log), (@pkg, …), (@snapshots, …)
+```
+
+`apply_layout()` executes the layers bottom-up and records what it made: the LUKS
+UUID that the boot entry needs, the array device the initramfs must assemble, and
+the volume group the kernel command line names. Alongside installs skip the zap
+entirely, create a single partition with `sgdisk -n <n>:0:0` in the largest free
+space, and mount the existing ESP without formatting it.
+
+The initramfs order is the boot order: `mdadm_udev` assembles the array, `encrypt`
+unlocks the container, `lvm2` finds the volume group, then `filesystems` mounts
+the root. `system.configure_crypto()` writes exactly that sequence.
+
 
 ## Multilib
 
@@ -131,7 +159,7 @@ entries.
   `loader/entries/arch.conf` with `root=UUID=<fs uuid>`, `rootfstype=`, and the
   microcode initrd before the initramfs (the order the guide requires).
 - **GRUB (UEFI)**: `efivarfs` is mounted inside the chroot for the duration of
-  `grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=Arch`,
+  `grub-install --target=<arch>-efi --efi-directory=/boot --bootloader-id=Kiln`,
   then `grub-mkconfig`.
 - **GRUB (BIOS)**: `grub-install --target=i386-pc --recheck /dev/sdX` with the
   2 MiB BIOS boot partition created by the layout planner.

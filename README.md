@@ -27,6 +27,7 @@ installer/            the installation wizard
   disk.py             GPT layout planning, sgdisk, mkfs, mounts
   catalog.py          the package catalogue (categories, multilib flags)
   packages.py         pacman: pacstrap, [multilib], repository search
+  aur.py              AUR recipes: dependency order, makepkg build user
   config.py           the installation request and its validation
   system.py           locale, keyboard, hostname, accounts, services, panel
   network.py          NetworkManager Wi-Fi profile for the new system
@@ -213,13 +214,52 @@ a multi-gigabyte binary does not belong in git history.
 - Installation erases the selected disk completely. There is no dual-boot or
   shrink-an-existing-partition mode in this version.
 
+## Storage, encryption and dual boot
+
+The Storage step stacks the layers the way Arch does, and shows the result on the
+Disk page before anything is written:
+
+```
+disk(s) -> mdadm array -> LUKS2 container -> LVM volume group -> ext4/xfs/btrfs -> subvolumes
+```
+
+- **Encryption** — LUKS2 with argon2id on the root partition. The passphrase is
+  asked once while installing and at every boot; `/boot` stays on the EFI system
+  partition, which the boot loader has to read before anything is unlocked.
+  `/etc/crypttab` and the `encrypt` initramfs hook are written for you.
+- **LVM** — `pvcreate`/`vgcreate`/`lvcreate` over the root partition (or over the
+  LUKS container). The boot entry names `/dev/vg0/root`.
+- **RAID** — mdadm RAID 1, 5 or 10 across the whole root partitions of 2, 3+ or 4+
+  disks. The array is assembled by the `mdadm_udev` hook before the container is
+  opened; GRUB on a legacy machine is installed to every member.
+- **Btrfs** — `@`, `@home`, `@log`, `@pkg` and `@snapshots` subvolumes, mounted
+  `compress=zstd:3,noatime`, with `rootflags=subvol=@` in the boot entry.
+- **Alongside** — keeps a system that is already installed, Windows included. The
+  existing EFI system partition is found and mounted **without formatting**, one
+  partition is created in the free space, and `os-prober` is enabled so GRUB
+  writes the other system's menu entry.
+
+## Secure Boot, the AUR and other architectures
+
+- **Secure Boot** — `sbctl` creates keys, signs the kernel, the initramfs and the
+  boot loader, and signs them again on kernel updates. Enrolling the keys needs
+  the firmware in setup mode; if the firmware refuses, the log says so and names
+  the one command to run from the installed system.
+- **AUR** — names listed in Software are cloned and built inside the new system
+  by an unprivileged `makepkg` user, after `base-devel`. Dependencies that are
+  themselves AUR packages are resolved and built first. Nothing is reviewed: an
+  AUR package runs whatever its recipe says.
+- **Architectures** — x86_64 and aarch64. The installer refuses a cross-arch
+  install instead of producing a system whose packages and EFI loader do not
+  match; the medium has to be built for the architecture it installs
+  (`arch` in `profiledef.sh`, `packages.<arch>`).
+
 ## What is not implemented
 
-- LUKS encryption, LVM, RAID and Btrfs subvolume layouts.
-- Installing alongside an existing system (Windows dual boot).
-- Secure Boot signing.
-- AUR packages.
-- Non-x86_64 architectures.
+- Shrinking an existing partition to make room: alongside uses free space only.
+- LUKS on `/boot` or the ESP (no GRUB cryptodisk), and no keyfile or TPM unlock.
+- Reviewing or signing AUR recipes, or third-party repositories.
+- Custom kernel command-line options and hibernation setup.
 - Mirror selection UI: the live medium's mirrorlist is used (reflector is
   installed, so `reflector --latest 20 --sort rate --save /etc/pacman.d/mirrorlist`
   can be run before starting the installer).
@@ -246,7 +286,7 @@ Checked in the authoring environment (Windows, Python 3.13, no Arch, no root, no
 X display):
 
 - `python3 -m compileall` over `installer/` and `panel/` — passes.
-- `python3 -m installer --selftest` — the 11 phases complete against simulated
+- `python3 -m installer --selftest` — all 13 phases complete against simulated
   hardware with every command in dry run.
 - `python3 -m panel --check` — runs (it reports "unknown" for facts that do not
   exist on Windows).

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 
@@ -18,7 +19,7 @@ LOG_PATH = "/var/log/kiln-setup.log"
 MEDIUM_ROOT = "/opt/kiln-setup"
 
 PANEL_LAUNCHER = """#!/bin/sh
-# Arch Control Panel launcher (installed by the Arch GUI installer).
+# Kiln Control Panel launcher.
 PYTHONPATH=/opt/kiln-setup
 export PYTHONPATH
 exec /usr/bin/python3 -m panel "$@"
@@ -26,14 +27,14 @@ exec /usr/bin/python3 -m panel "$@"
 
 PANEL_DESKTOP = """[Desktop Entry]
 Type=Application
-Name=Arch Control Panel
+Name=Kiln Control Panel
 GenericName=System Settings
 Comment=Manage software, services, users and network
 Exec=/usr/local/bin/kiln-panel
 Icon=preferences-system
 Terminal=false
 Categories=Settings;System;
-Keywords=arch;pacman;settings;software;
+Keywords=kiln;pacman;settings;software;
 """
 
 
@@ -142,6 +143,49 @@ def enable_fstrim(ctx: Context) -> None:
     ctx.chroot("systemctl enable fstrim.timer", check=False)
 
 
+def configure_crypto(ctx: Context, cfg: InstallConfig, layout: DiskPlan | None = None) -> None:
+    """Make the initramfs able to find an encrypted, assembled or LVM root.
+
+    The order of the hooks is the order the kernel runs them: the array has to
+    be assembled before the container is unlocked, and the container before the
+    volume group is scanned.  Getting this wrong produces a boot that stops in
+    the emergency shell with no explanation.
+    """
+    hooks = [
+        "base", "udev", "autodetect", "microcode", "modconf", "kms",
+        "keyboard", "keymap", "consolefont", "block",
+    ]
+    if cfg.uses_raid:
+        hooks.append("mdadm_udev")
+    if cfg.encrypted:
+        hooks.append("encrypt")
+    if cfg.uses_lvm:
+        hooks.append("lvm2")
+    hooks += ["filesystems", "fsck"]
+
+    text = ctx.read_target("etc/mkinitcpio.conf")
+    if text:
+        updated = re.sub(
+            r"^HOOKS=\(.*\)\s*$", "HOOKS=(%s)" % " ".join(hooks), text, flags=re.M
+        )
+        if cfg.root_fs == "btrfs":
+            # The autodetect hook only keeps modules of devices in this machine;
+            # a btrfs root always needs its module in the image.
+            updated = re.sub(
+                r"^MODULES=\(.*\)\s*$", "MODULES=(btrfs)", updated, flags=re.M
+            )
+        if updated != text:
+            ctx.write_target("etc/mkinitcpio.conf", updated)
+
+    if cfg.encrypted and layout is not None and getattr(layout, "luks_uuid", ""):
+        ctx.write_target(
+            "etc/crypttab",
+            "# Written by Kiln Setup. The passphrase is asked for at every boot.\n"
+            "%s UUID=%s none luks\n" % (layout.crypt_name, layout.luks_uuid),
+            mode=0o600,
+        )
+
+
 def build_initramfs(ctx: Context) -> None:
     ctx.chroot("mkinitcpio -P")
 
@@ -204,16 +248,40 @@ def accounts(ctx: Context, cfg: InstallConfig) -> None:
     configure_sudoers(ctx)
 
 
+def stack_description(cfg: InstallConfig) -> str:
+    """The storage layers, bottom-up, as one readable line."""
+    layers = []
+    if cfg.uses_raid:
+        layers.append("RAID %s" % cfg.raid)
+    if cfg.encrypted:
+        layers.append("LUKS2")
+    if cfg.uses_lvm:
+        layers.append("LVM")
+    layers.append(cfg.root_fs)
+    if cfg.root_fs == "btrfs" and not cfg.alongside:
+        layers.append("subvolumes")
+    return " / ".join(layers)
+
+
 def summary(cfg: InstallConfig, hw: HardwareProfile) -> list:
+    disk = cfg.disk + (" (alongside the existing system)" if cfg.alongside else "")
     return [
         ("Computer", hw.cpu_model),
         ("Memory", "%d GiB" % max(1, round(hw.ram_bytes / 1024 ** 3))),
         ("Firmware", hw.firmware.upper() + (", Secure Boot on" if hw.secure_boot else "")),
-        ("Disk", cfg.disk),
-        ("Filesystem", cfg.root_fs),
-        ("Kernel", cfg.kernel),
+        ("Architecture", cfg.arch),
+        ("Disk", disk),
+        ("Storage", stack_description(cfg)),
+        ("Kernel", cfg.kernel_package),
         ("Desktop", options.DESKTOPS.get(cfg.desktop, (cfg.desktop, ""))[0]),
-        ("Boot loader", cfg.resolved_bootloader),
+        (
+            "Boot loader",
+            cfg.resolved_bootloader + (", signed for Secure Boot" if cfg.secure_boot else ""),
+        ),
         ("Multilib", "enabled (32-bit software)" if cfg.multilib else "disabled"),
+        (
+            "AUR",
+            "%d package(s)" % len(cfg.aur_packages) if cfg.aur_packages else "not used",
+        ),
         ("Packages", "%d selected by hand" % len(cfg.packages)),
     ]

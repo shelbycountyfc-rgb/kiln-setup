@@ -8,6 +8,7 @@ Each page builds its widgets in :meth:`Page.build`, writes the answers back to
 
 from __future__ import annotations
 
+import re
 import threading
 import tkinter as tk
 from tkinter import ttk
@@ -109,12 +110,13 @@ class WelcomePage(Page):
             justify="left", wraplength=700,
         ).pack(fill="x", pady=(0, 20))
 
-        card = Card(body, theme, "What this installation does", "Seven steps, then about 10 to 25 minutes of work.")
+        card = Card(body, theme, "What this installation does", "Eight steps, then about 12 to 30 minutes of work.")
         card.pack(fill="x", pady=(0, 16))
         bullets(
             card.body, theme,
             (
                 "Partitions and formats the disk you choose, with an EFI system partition, swap and an optional separate /home.",
+                "Adds LUKS encryption, LVM, an mdadm array or Btrfs subvolumes when you ask for them, and can install alongside a system that is already there.",
                 "Installs the base system and the kernel you pick with pacstrap, then configures locale, keyboard, hostname and accounts.",
                 "Installs a desktop (KDE Plasma, GNOME, Xfce, Cinnamon, MATE, LXQt or Hyprland) and any extra software you select by category.",
                 "Turns on the multilib repository when you want 32-bit software such as Steam or Wine.",
@@ -427,7 +429,7 @@ class DiskPage(Page):
     name = "disk"
     title = "Where do you want to install Arch Linux?"
     subtitle = "The selected disk is erased completely: every partition on it will be removed."
-    footer_note = "Only whole-disk installation is offered by this version."
+    footer_note = "Erasing the disk is the default; the next page can keep an existing system instead."
     rail_key = "disk"
 
     def build(self, body: tk.Misc) -> None:
@@ -529,10 +531,22 @@ class DiskPage(Page):
             esp_gb = float(self.esp.get() or 1)
         except ValueError:
             esp_gb = 1.0
+        members = []
+        for member in self.app.form.get("raidDisks") or []:
+            found_member = disk_module.find_disk(self.app.hardware, member)
+            if found_member is not None:
+                members.append((member, found_member.size))
         plan = disk_module.plan_layout(
             device, found.size, efi=self.app.form["efi"], root_fs=self.rootfs.get(),
             swap=self.swap.get(), swap_gb=swap_gb or None, esp_gb=esp_gb,
             separate_home=self.home.get(), ram_bytes=self.app.hardware.ram_bytes,
+            mode=self.app.form.get("mode", "erase"),
+            encryption=self.app.form.get("encryption", "none"),
+            volumes=self.app.form.get("volumes", "partitions"),
+            raid=self.app.form.get("raid", "none"),
+            raid_members=members,
+            keep_esp=self.app.form.get("keepEsp") or "",
+            alongside_number=disk_module.next_partition_number(self.app.hardware, device),
         )
         header = tk.Frame(self._preview, bg=theme.panel)
         header.pack(fill="x", pady=(0, 6))
@@ -551,13 +565,18 @@ class DiskPage(Page):
                     row, text=text, bg=theme.panel, fg=theme.ink_soft, font=theme.body,
                     width=width, anchor="w",
                 ).pack(side="left")
+        if plan.stack():
+            hint(
+                self._preview, theme,
+                "Layers: %s" % " \u2192 ".join(plan.stack()),
+            ).pack(fill="x", pady=(8, 0))
         if found.size < MIN_DISK_BYTES:
             Notice(
                 self._preview, theme,
                 "This disk is smaller than 20 GiB, which is too small for a desktop installation.",
                 kind="warn",
             ).pack(fill="x", pady=(8, 0))
-        if found.partitions:
+        if found.partitions and self.app.form.get("mode", "erase") == "erase":
             Notice(
                 self._preview, theme,
                 "%d existing partition(s) on %s will be deleted, including any other operating "
@@ -591,6 +610,217 @@ class DiskPage(Page):
         except (TypeError, ValueError) as error:
             return ["The answers could not be read: %s" % error]
         return config.disk_errors(disk_size=size)
+
+
+
+# --------------------------------------------------------------------------- #
+# Storage
+# --------------------------------------------------------------------------- #
+class StoragePage(Page):
+    name = "storage"
+    title = "Encryption, arrays and boot"
+    subtitle = "Optional layers under the filesystem; every choice is shown again on the review page."
+    footer_note = "A LUKS passphrase is asked for at every boot and is stored nowhere."
+    rail_key = "storage"
+
+    def build(self, body: tk.Misc) -> None:
+        theme = self.theme
+        hw = self.app.hardware
+        form_data = self.app.form
+        self._esp = disk_module.find_esp(hw, form_data.get("disk", ""))
+
+        mode_card = Card(
+            body, theme, "This disk",
+            "Erase everything, or keep the system that is already installed.",
+        )
+        mode_card.pack(fill="x", pady=(0, 16))
+        grid = tk.Frame(mode_card.body, bg=theme.panel)
+        grid.pack(fill="x")
+        grid.columnconfigure(0, weight=1)
+        grid.columnconfigure(1, weight=1)
+        self.mode_var = self.app.form_var("mode")
+        self._mode_cards = []
+        for index, (key, (label, description)) in enumerate(options.INSTALL_MODES.items()):
+            text = description
+            if key == "alongside" and not self._esp:
+                text = "No EFI system partition was found, so there is nothing to keep."
+            item = OptionCard(
+                grid, theme, label, text, key, self.mode_var,
+                command=self._mode_changed, width=330,
+            )
+            item.grid(row=0, column=index, sticky="ew", padx=(0, 8))
+            self._mode_cards.append(item)
+
+        enc_card = Card(
+            body, theme, "Encryption",
+            "LUKS2 on the root partition. /boot stays on the EFI partition, which the "
+            "boot loader has to read before anything is unlocked.",
+        )
+        enc_card.pack(fill="x", pady=(0, 16))
+        self.encrypt = tk.BooleanVar(value=form_data.get("encryption") == "luks")
+        ttk.Checkbutton(
+            enc_card.body, text="Encrypt the root filesystem (LUKS2)",
+            variable=self.encrypt, style="Panel.TCheckbutton",
+        ).pack(anchor="w")
+        form = Form(enc_card.body, theme)
+        form.pack(fill="x", pady=(10, 0))
+        holder = form.field("Passphrase", "At least 8 characters. There is no recovery key.")
+        self.passphrase = tk.StringVar()
+        ttk.Entry(holder, textvariable=self.passphrase, show="*", width=32).pack(side="left")
+        holder = form.field("Repeat passphrase")
+        self.passphrase2 = tk.StringVar()
+        ttk.Entry(holder, textvariable=self.passphrase2, show="*", width=32).pack(side="left")
+
+        layers = Card(body, theme, "Layers under the filesystem")
+        layers.pack(fill="x", pady=(0, 16))
+        form = Form(layers.body, theme)
+        form.pack(fill="x")
+        holder = form.field(
+            "Volume manager", "LVM adds a volume group, so volumes can be resized later."
+        )
+        volume_labels = {key: value[0] for key, value in options.VOLUMES.items()}
+        self._volume_labels = volume_labels
+        self.volume_label = tk.StringVar(
+            value=volume_labels.get(form_data.get("volumes", "partitions"), volume_labels["partitions"])
+        )
+        ttk.Combobox(
+            holder, textvariable=self.volume_label, values=list(volume_labels.values()),
+            state="readonly", width=26,
+        ).pack(side="left")
+        hint(
+            layers.body, theme,
+            "A Btrfs root is created with @, @home, @log, @pkg and @snapshots subvolumes, "
+            "mounted compressed with zstd.",
+        ).pack(fill="x", pady=(6, 0))
+
+        raid_card = Card(
+            body, theme, "RAID",
+            "An mdadm array uses the whole root partition of every disk selected here. "
+            "The EFI partition stays on the installation disk.",
+        )
+        raid_card.pack(fill="x", pady=(0, 16))
+        form = Form(raid_card.body, theme)
+        form.pack(fill="x")
+        holder = form.field("Level", "RAID 1 needs two disks, RAID 5 three, RAID 10 four.")
+        raid_labels = {key: value[0] for key, value in options.RAID.items()}
+        self._raid_labels = raid_labels
+        self.raid_label = tk.StringVar(
+            value=raid_labels.get(form_data.get("raid", "none"), raid_labels["none"])
+        )
+        ttk.Combobox(
+            holder, textvariable=self.raid_label, values=list(raid_labels.values()),
+            state="readonly", width=26,
+        ).pack(side="left")
+        holder = form.field("Member disks", "The installation disk is always a member.")
+        self.member_list = tk.Listbox(
+            holder, height=4, width=42, selectmode="multiple", activestyle="none",
+            bd=0, highlightthickness=1, highlightbackground=theme.line,
+            bg=theme.canvas, fg=theme.ink,
+            selectbackground=theme.accent_soft, selectforeground=theme.ink,
+            font=theme.body, exportselection=False,
+        )
+        self.member_list.pack(side="left")
+        self._member_devices = []
+        for found in hw.internal_disks() or list(hw.disks):
+            if found.device == form_data.get("disk"):
+                continue
+            self._member_devices.append(found.device)
+            self.member_list.insert(
+                "end", "  %-14s %s  %s" % (
+                    found.device, found.to_dict()["sizeText"], found.model or found.name
+                )
+            )
+
+        boot = Card(body, theme, "Firmware", "Secure Boot, and the architecture being installed.")
+        boot.pack(fill="x")
+        form = Form(boot.body, theme)
+        form.pack(fill="x")
+        holder = form.field(
+            "Secure Boot",
+            "sbctl creates keys and signs the kernel and the boot loader; enrolling them "
+            "needs the firmware in setup mode.",
+        )
+        self.secure = tk.BooleanVar(value=bool(form_data.get("secureBoot")))
+        ttk.Checkbutton(
+            holder, text="Sign the boot files (sbctl)", variable=self.secure,
+            style="Panel.TCheckbutton",
+        ).pack(anchor="w")
+        holder = form.field(
+            "Architecture", "The medium has to be built for the architecture it installs."
+        )
+        arch_labels = {key: value[0] for key, value in options.ARCHES.items()}
+        self._arch_labels = arch_labels
+        self.arch_label = tk.StringVar(
+            value=arch_labels.get(form_data.get("arch", "x86_64"), arch_labels["x86_64"])
+        )
+        ttk.Combobox(
+            holder, textvariable=self.arch_label, values=list(arch_labels.values()),
+            state="readonly", width=26,
+        ).pack(side="left")
+
+    # -- behaviour ---------------------------------------------------------
+    def _mode_changed(self) -> None:
+        if self.mode_var.get() == "alongside" and not self._esp:
+            self.mode_var.set("erase")
+        for card in self._mode_cards:
+            card.refresh()
+        self.clear_errors()
+
+    def enter(self) -> None:
+        for card in self._mode_cards:
+            card.refresh()
+
+    @staticmethod
+    def _reverse(labels, value: str, fallback: str) -> str:
+        for key, label in labels.items():
+            if label == value:
+                return key
+        return fallback
+
+    def collect(self) -> None:
+        form = self.app.form
+        form["mode"] = self.mode_var.get()
+        form["encryption"] = "luks" if self.encrypt.get() else "none"
+        form["luksPassphrase"] = self.passphrase.get() if self.encrypt.get() else ""
+        form["volumes"] = self._reverse(self._volume_labels, self.volume_label.get(), "partitions")
+        form["raid"] = self._reverse(self._raid_labels, self.raid_label.get(), "none")
+        if form["raid"] == "none":
+            form["raidDisks"] = []
+        else:
+            form["raidDisks"] = [
+                self._member_devices[index]
+                for index in self.member_list.curselection()
+                if index < len(self._member_devices)
+            ]
+        form["secureBoot"] = bool(self.secure.get())
+        form["arch"] = self._reverse(self._arch_labels, self.arch_label.get(), "x86_64")
+        form["keepEsp"] = self._esp if form["mode"] == "alongside" else ""
+
+    def errors(self) -> list:
+        self.collect()
+        problems = []
+        if self.encrypt.get():
+            if len(self.passphrase.get()) < 8:
+                problems.append("The disk encryption passphrase must be at least 8 characters.")
+            elif self.passphrase.get() != self.passphrase2.get():
+                problems.append("The two passphrases do not match.")
+        if self.mode_var.get() == "alongside" and not self._esp:
+            problems.append(
+                "No EFI system partition was found, so an installation alongside another "
+                "system is not possible on this machine."
+            )
+        if self.secure.get() and self.mode_var.get() == "alongside":
+            problems.append(
+                "Turn Secure Boot signing off for an installation alongside another system: "
+                "the keys belong to the other system's boot loader."
+            )
+        try:
+            config = InstallConfig.from_dict(self.app.form)
+        except (TypeError, ValueError) as error:
+            return problems + ["The answers could not be read: %s" % error]
+        found = disk_module.find_disk(self.app.hardware, self.app.form["disk"])
+        problems.extend(config.disk_errors(disk_size=found.size if found else 0))
+        return problems
 
 
 # --------------------------------------------------------------------------- #
@@ -721,7 +951,7 @@ class SoftwarePage(Page):
     name = "software"
     title = "Choose what to install"
     subtitle = "A desktop, the kernel, 32-bit support and any extra packages."
-    footer_note = "Packages come from the official repositories; the AUR is not used."
+    footer_note = "Packages are signed by the Arch repositories unless AUR support is turned on."
     rail_key = "software"
 
     def build(self, body: tk.Misc) -> None:
@@ -795,6 +1025,26 @@ class SoftwarePage(Page):
             variable=self.multilib, style="Panel.TCheckbutton",
             command=self._refresh_selection_count,
         ).pack(anchor="w")
+
+        aur_card = Card(
+            body, theme, "AUR packages",
+            "The Arch User Repository holds build recipes, not packages: each one is compiled "
+            "here while installing, and nobody has reviewed what it runs.",
+        )
+        aur_card.pack(fill="x", pady=(0, 16))
+        self.aur = tk.BooleanVar(value=bool(form_data.get("aur")))
+        ttk.Checkbutton(
+            aur_card.body, text="Build packages from the AUR", variable=self.aur,
+            style="Panel.TCheckbutton", command=self._refresh_selection_count,
+        ).pack(anchor="w")
+        aur_row = tk.Frame(aur_card.body, bg=theme.panel)
+        aur_row.pack(fill="x", pady=(8, 0))
+        self.aur_names = tk.StringVar(value=" ".join(form_data.get("aurPackages") or []))
+        ttk.Entry(aur_row, textvariable=self.aur_names, width=52).pack(side="left")
+        hint(
+            aur_card.body, theme,
+            "Space-separated names, for example: google-chrome spotify",
+        ).pack(fill="x", pady=(6, 0))
 
         picker = Card(
             body, theme, "Packages",
@@ -978,6 +1228,10 @@ class SoftwarePage(Page):
         form = self.app.form
         form["kernel"] = self.kernel.get()
         form["multilib"] = bool(self.multilib.get())
+        form["aur"] = bool(self.aur.get())
+        form["aurPackages"] = [
+            name for name in re.split(r"[\s,]+", self.aur_names.get().strip()) if name
+        ]
         form["desktop"] = self.desktop_var.get()
         reverse = {label: key for key, label in self._microcode_labels.items()}
         form["microcode"] = reverse.get(self.microcode_label.get(), "auto")

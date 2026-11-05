@@ -160,6 +160,28 @@ def filesystem_packages(root_fs: str) -> list:
     }.get(root_fs, [])
 
 
+def storage_packages(cfg: InstallConfig) -> list:
+    """Tools the planned storage stack needs on the installed system."""
+    packages = []
+    if cfg.encrypted:
+        packages.append("cryptsetup")
+    if cfg.uses_lvm:
+        packages.append("lvm2")
+    if cfg.uses_raid:
+        packages.append("mdadm")
+    return packages
+
+
+def security_packages(cfg: InstallConfig) -> list:
+    packages = []
+    if cfg.secure_boot:
+        packages.append("sbctl")
+    if cfg.alongside:
+        # os-prober is what finds the other system and writes its menu entry.
+        packages.append("os-prober")
+    return packages
+
+
 def bootloader_packages(cfg: InstallConfig) -> list:
     """Boot loader packages needed for the resolved choice."""
     if cfg.resolved_bootloader == "systemd-boot":
@@ -218,9 +240,11 @@ def required_packages(cfg: InstallConfig, hardware=None) -> list:
     """
     packages: list = list(BASE_PACKAGES)
     packages += firmware_packages(cfg, hardware)
-    packages.append(cfg.kernel)
+    packages.append(cfg.kernel_package)
     packages += filesystem_packages(cfg.root_fs)
     packages += bootloader_packages(cfg)
+    packages += storage_packages(cfg)
+    packages += security_packages(cfg)
     packages.append("networkmanager")
     microcode = microcode_package(cfg, hardware)
     if microcode:
@@ -249,8 +273,8 @@ def multilib_missing(cfg: InstallConfig) -> list:
 
 
 def aur_packages(cfg: InstallConfig) -> list:
-    """AUR is not used by this installer; listed for the summary."""
-    return []
+    """AUR packages the user asked for; built after the repositories are done."""
+    return list(cfg.aur_packages) if cfg.aur else []
 
 
 def install_size_hint(packages: list) -> str:

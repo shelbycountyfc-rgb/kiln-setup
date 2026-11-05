@@ -20,15 +20,13 @@ GRUB_HEADER = """\
 GRUB_DEFAULT=0
 GRUB_TIMEOUT=5
 GRUB_TIMEOUT_STYLE=menu
-GRUB_DISTRIBUTOR="Arch"
+GRUB_DISTRIBUTOR="Kiln"
 # No "quiet": a machine that cannot boot has to say why on the console.
 GRUB_CMDLINE_LINUX_DEFAULT="loglevel=4"
 GRUB_CMDLINE_LINUX=""
 GRUB_PRELOAD_MODULES="part_gpt part_msdos"
 GRUB_DISABLE_RECOVERY=true
-# An entry left behind by a system this installation erased must never become
-# the default: it fails and drops straight back to the GRUB menu.
-GRUB_DISABLE_OS_PROBER=true
+GRUB_DISABLE_OS_PROBER={os_prober}
 GRUB_TERMINAL_INPUT=console
 GRUB_GFXMODE=auto
 GRUB_GFXPAYLOAD_LINUX=keep
@@ -38,7 +36,7 @@ GRUB_GFXPAYLOAD_LINUX=keep
 #: that already had Linux often keeps an older ESP first in BootOrder, and that
 #: GRUB comes up with entries for partitions this installation wiped.
 EFI_BOOT_ORDER = r"""
-entry=$(efibootmgr | sed -n 's/^Boot\([0-9A-Fa-f]\{4\}\)[* ]*Arch.*/\1/p' | head -1)
+entry=$(efibootmgr | sed -n 's/^Boot\([0-9A-Fa-f]\{4\}\)[* ]*Kiln.*/\1/p' | head -1)
 if [ -n "$entry" ]; then
   others=$(efibootmgr | sed -n 's/^Boot\([0-9A-Fa-f]\{4\}\).*/\1/p' | grep -v "^$entry$" | paste -sd, -)
   efibootmgr --bootorder "$entry${others:+,$others}"
@@ -52,6 +50,20 @@ timeout  4
 console-mode max
 editor   no
 """
+
+#: The EFI binaries Secure Boot has to cover, per architecture.
+EFI_SIGN_TARGETS = {
+    "x86_64": (
+        "/boot/EFI/systemd/systemd-bootx64.efi",
+        "/boot/EFI/BOOT/BOOTX64.EFI",
+        "/boot/EFI/Kiln/grubx64.efi",
+    ),
+    "aarch64": (
+        "/boot/EFI/systemd/systemd-bootaa64.efi",
+        "/boot/EFI/BOOT/BOOTAA64.EFI",
+        "/boot/EFI/Kiln/grubaa64.efi",
+    ),
+}
 
 
 def kernel_images(kernel: str) -> tuple:
@@ -67,8 +79,39 @@ def microcode_initrd(ucode: str) -> str:
     return ""
 
 
+def efi_target(cfg: InstallConfig) -> str:
+    """The ``grub-install --target`` value for the architecture being installed."""
+    return "arm64-efi" if cfg.arch == "aarch64" else "x86_64-efi"
+
+
+def kernel_options(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> str:
+    """The kernel command line the installed system needs to find its root.
+
+    An encrypted root is named by the UUID of the LUKS container, not by the
+    filesystem inside it: at boot time that filesystem does not exist yet.  An
+    LVM root is named by its volume group, and a Btrfs root by the subvolume.
+    """
+    options = []
+    if layout.encryption == "luks":
+        if not layout.luks_uuid:
+            ctx.log.log(
+                "the LUKS container has no UUID recorded; the boot entry cannot name it",
+                "warn",
+            )
+        options.append("cryptdevice=UUID=%s:%s" % (layout.luks_uuid, layout.crypt_name))
+    if layout.volumes == "lvm":
+        options.append("root=/dev/%s/%s" % (layout.vg, layout.lv))
+    else:
+        root = layout.mapper or layout.md_device or layout.device("root")
+        options.append("root=UUID=%s" % uuid_of(ctx, root))
+    options.append("rw")
+    options.append("rootfstype=%s" % cfg.root_fs)
+    if layout.subvolumes:
+        options.append("rootflags=subvol=@")
+    return " ".join(options)
+
+
 def entry_text(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> str:
-    root_uuid = uuid_of(ctx, layout.device("root"))
     vmlinuz, initramfs = kernel_images(cfg.kernel)
     lines = ["title   Arch Linux (%s)" % cfg.kernel, "linux   %s" % vmlinuz]
     ucode = microcode_initrd(
@@ -77,9 +120,7 @@ def entry_text(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> str:
     if ucode:
         lines.append("initrd  %s" % ucode)
     lines.append("initrd  %s" % initramfs)
-    lines.append(
-        "options root=UUID=%s rw rootfstype=%s quiet" % (root_uuid, cfg.root_fs)
-    )
+    lines.append("options %s quiet" % kernel_options(ctx, cfg, layout))
     return "\n".join(lines) + "\n"
 
 
@@ -150,6 +191,46 @@ def _verify_kernel(ctx: Context, cfg: InstallConfig) -> None:
         )
 
 
+def sign_boot_files(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
+    """Sign the kernel and the boot loader so Secure Boot accepts them.
+
+    sbctl keeps the keys and remembers what it has signed, so later kernel
+    updates are re-signed by its pacman hook.  Enrolling the keys needs the
+    firmware in setup mode: that cannot be forced from here, so a refusal is
+    reported with the one command that finishes the job after a reboot.
+    """
+    ctx.log.log("signing the boot files with sbctl", "step")
+    ctx.chroot("command -v sbctl >/dev/null 2>&1 || exit 3", check=False)
+    ctx.chroot("sbctl status | grep -q 'Setup Mode:.*Enabled' || sbctl create-keys", check=False)
+    kernel = "/boot/vmlinuz-%s" % cfg.kernel
+    targets = [kernel]
+    if layout.encryption == "luks":
+        # The initramfs lives on the unencrypted ESP, but it is the file that
+        # unlocks the disk: signing it closes the same gap as signing the kernel.
+        targets.append("/boot/initramfs-%s.img" % cfg.kernel)
+    targets.extend(EFI_SIGN_TARGETS.get(cfg.arch, EFI_SIGN_TARGETS["x86_64"]))
+    for target in targets:
+        ctx.chroot(
+            'if [ -f %s ]; then sbctl sign --save %s; fi'
+            % (shlex_quote(target), shlex_quote(target)),
+            check=False,
+        )
+    result = ctx.chroot("sbctl enroll-keys --microsoft", check=False)
+    if getattr(result, "returncode", 1) != 0:
+        ctx.log.log(
+            "the firmware refused the new keys. Reboot into the firmware setup, clear "
+            "the Secure Boot keys (setup mode), then run 'sbctl enroll-keys --microsoft' "
+            "once from the installed system.",
+            "warn",
+        )
+
+
+def shlex_quote(value: str) -> str:
+    import shlex
+
+    return shlex.quote(value)
+
+
 def install_systemd_boot(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
     ctx.chroot("bootctl --esp-path=/boot install")
     ctx.write_target("boot/loader/loader.conf", LOADER_CONF)
@@ -158,7 +239,10 @@ def install_systemd_boot(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> 
 
 
 def install_grub(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
-    ctx.write_target("etc/default/grub", GRUB_HEADER)
+    header = GRUB_HEADER.replace(
+        "{os_prober}", "false" if cfg.alongside else "true"
+    )
+    ctx.write_target("etc/default/grub", header)
     if cfg.efi:
         boot = ctx.target_path("boot")
         if not ctx.dry_run and not os.path.ismount(boot):
@@ -175,13 +259,16 @@ def install_grub(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
             check=False,
         )
         ctx.chroot(
-            "grub-install --target=x86_64-efi --efi-directory=/boot "
-            "--bootloader-id=Arch --recheck"
+            "grub-install --target=%s --efi-directory=/boot "
+            "--bootloader-id=Kiln --recheck" % efi_target(cfg)
         )
         ctx.chroot(EFI_BOOT_ORDER, check=False)
         ctx.chroot("umount /sys/firmware/efi/efivars 2>/dev/null || true", check=False)
     else:
-        ctx.chroot("grub-install --target=i386-pc --recheck %s" % layout.disk)
+        # Legacy BIOS with an array: GRUB has to be on every member, or the
+        # machine only boots from the disk the firmware happens to pick.
+        for member in layout.members or []:
+            ctx.chroot("grub-install --target=i386-pc --recheck %s" % member.disk)
     ctx.chroot("grub-mkconfig -o /boot/grub/grub.cfg")
     _verify_kernel(ctx, cfg)
     _fix_grub_paths(ctx, cfg)
@@ -204,3 +291,5 @@ def install(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
         install_systemd_boot(ctx, cfg, layout)
     else:
         install_grub(ctx, cfg, layout)
+    if cfg.secure_boot:
+        sign_boot_files(ctx, cfg, layout)

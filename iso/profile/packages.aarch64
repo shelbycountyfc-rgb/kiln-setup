@@ -1,0 +1,68 @@
+# Packages of the live medium, aarch64 build.
+#
+# Same role as packages.x86_64: a kernel, an X server for one Tk application,
+# and the tools the installation engine calls.  The x86-only pieces (uCode for
+# Intel/AMD CPUs, the intel/amdgpu X drivers, syslinux, the x86 GRUB install) are
+# not here; the aarch64 GRUB package provides the arm64-efi target instead.
+
+# --- base system and kernel -------------------------------------------------
+base
+linux-aarch64
+linux-firmware
+mkinitcpio
+mkinitcpio-archiso
+mkinitcpio-nfs-utils
+systemd-sysvcompat
+sudo
+nano
+vim
+less
+man-db
+man-pages
+bash-completion
+tmux
+htop
+zsh
+
+# --- the installer ----------------------------------------------------------
+python
+tk
+xorg-server
+xorg-xinit
+xorg-xset
+xorg-xsetroot
+xf86-input-libinput
+mesa
+ttf-dejavu
+noto-fonts
+adwaita-cursors
+
+# --- installation tools -----------------------------------------------------
+arch-install-scripts
+pacman-contrib
+reflector
+gptfdisk
+parted
+dosfstools
+e2fsprogs
+xfsprogs
+btrfs-progs
+exfatprogs
+util-linux
+lvm2
+cryptsetup
+mdadm
+grub
+efibootmgr
+squashfs-tools
+
+# --- networking -------------------------------------------------------------
+networkmanager
+networkmanager-openvpn
+iwd
+wpa_supplicant
+openssh
+iw
+wireless-regdb
+curl
+wget

@@ -20,6 +20,7 @@ from .pages import (
     NetworkPage,
     ProgressPage,
     SoftwarePage,
+    StoragePage,
     SummaryPage,
     SystemPage,
     WelcomePage,
@@ -29,11 +30,15 @@ from .widgets import StepRail, fit_labels
 class Installer:
     """Owns the window, the collected answers and the running installation."""
 
-    ORDER = ("welcome", "hardware", "network", "disk", "system", "software", "summary", "progress", "finish")
+    ORDER = (
+        "welcome", "hardware", "network", "disk", "storage", "system", "software",
+        "summary", "progress", "finish",
+    )
     RAIL = (
         ("hardware", "Hardware"),
         ("network", "Network"),
         ("disk", "Disk"),
+        ("storage", "Storage"),
         ("system", "System"),
         ("software", "Software"),
         ("summary", "Review"),
@@ -145,6 +150,16 @@ class Installer:
             "swapGb": chosen["swapGb"],
             "espGb": 1.0,
             "separateHome": False,
+            "encryption": "none",
+            "luksPassphrase": "",
+            "volumes": "partitions",
+            "raid": "none",
+            "raidDisks": [],
+            "keepEsp": "",
+            "secureBoot": False,
+            "aur": False,
+            "aurPackages": [],
+            "arch": "x86_64",
             "hostname": "archlinux",
             "timezone": chosen["timezone"],
             "locale": chosen["locale"],
@@ -252,6 +267,7 @@ class Installer:
             HardwarePage,
             NetworkPage,
             DiskPage,
+            StoragePage,
             SystemPage,
             SoftwarePage,
             SummaryPage,

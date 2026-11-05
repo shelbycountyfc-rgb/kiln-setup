@@ -6,17 +6,19 @@ sub-step and the log tail.
 
 The phase order follows the installation guide:
 prepare -> partition/format/mount -> pacstrap -> extra packages -> fstab ->
-locale/keyboard/hostname -> accounts -> initramfs -> boot loader -> services.
+locale/keyboard/hostname -> initramfs hooks and crypttab -> accounts ->
+initramfs -> boot loader -> AUR packages -> services.
 """
 
 from __future__ import annotations
 
 import os
+import platform
 import threading
 import time
 import traceback
 
-from . import bootloader, disk, network, packages, system
+from . import aur, bootloader, disk, network, packages, system
 from .config import InstallConfig
 from .context import Context, Logger
 from .hardware import HardwareProfile
@@ -28,19 +30,29 @@ GIB = 1024 ** 3
 #: weighted by how long each step really takes rather than a timer.
 PHASES = (
     ("prepare", "Preparing", 3),
-    ("disk", "Partitioning and formatting", 10),
-    ("pacstrap", "Installing the base system", 46),
-    ("extras", "Installing selected software", 6),
+    ("disk", "Partitioning and formatting", 9),
+    ("pacstrap", "Installing the base system", 42),
+    ("extras", "Installing selected software", 5),
     ("fstab", "Writing the file system table", 2),
-    ("locale", "Locale, keyboard and hostname", 5),
-    ("users", "Accounts and passwords", 4),
+    ("locale", "Locale, keyboard and hostname", 4),
+    ("crypto", "Encryption and volumes", 2),
+    ("users", "Accounts and passwords", 3),
     ("initramfs", "Building the initial ramdisk", 4),
-    ("bootloader", "Installing the boot loader", 12),
-    ("services", "Enabling system services", 5),
+    ("bootloader", "Installing the boot loader", 11),
+    ("aur", "Building AUR packages", 6),
+    ("services", "Enabling system services", 6),
     ("finish", "Finishing up", 3),
 )
 
 PHASE_LABELS = {pid: label for pid, label, _ in PHASES}
+
+#: Tool -> the choice that makes it necessary on the live medium.
+REQUIRED_TOOLS = {
+    "pacstrap": "the base system",
+    "pacman": "every package",
+    "sgdisk": "partitioning",
+    "mkfs.fat": "the EFI system partition",
+}
 
 
 class Session:
@@ -120,20 +132,55 @@ class Session:
     def _prepare(self) -> None:
         ctx = self.ctx
         self._substep("Checking the live medium")
-        for tool in ("pacstrap", "pacman", "sgdisk", "mkfs.fat"):
+        for tool, needed_for in REQUIRED_TOOLS.items():
             if not ctx.dry_run and not _has(tool):
                 raise RuntimeError(
-                    "%s is missing from the live medium; boot the Arch installer medium"
+                    "%s is missing from the live medium (%s); boot the Arch installer medium"
+                    % (tool, needed_for)
+                )
+        for tool, choice in (
+            ("cryptsetup", self.cfg.encrypted),
+            ("pvcreate", self.cfg.uses_lvm),
+            ("mdadm", self.cfg.uses_raid),
+        ):
+            if choice and not ctx.dry_run and not _has(tool):
+                raise RuntimeError(
+                    "%s is missing from the live medium; the chosen storage layout needs it"
                     % tool
                 )
         if self.cfg.multilib:
             self._substep("Enabling the 32-bit multilib repository")
             packages.enable_live_multilib(ctx)
 
+        self._check_architecture()
+
         found = disk.find_disk(self.hw, self.cfg.disk)
         size = found.size if found else self._disk_size()
         if not ctx.dry_run and size <= 0:
             raise RuntimeError("cannot read the size of %s" % self.cfg.disk)
+
+        if self.cfg.alongside and not self.cfg.keep_esp:
+            self.cfg.keep_esp = disk.find_esp(self.hw, self.cfg.disk)
+        if self.cfg.alongside and not self.cfg.keep_esp:
+            raise RuntimeError(
+                "no EFI system partition was found to keep; an installation alongside "
+                "another system has to reuse its boot partition"
+            )
+        alongside_number = (
+            disk.next_partition_number(self.hw, self.cfg.disk) if self.cfg.alongside else 0
+        )
+
+        raid_members = []
+        if self.cfg.uses_raid:
+            for device in self.cfg.raid_disks:
+                member = disk.find_disk(self.hw, device)
+                if member is None:
+                    raise RuntimeError(
+                        "%s is not present on this machine, so the array cannot be built"
+                        % device
+                    )
+                raid_members.append((device, member.size))
+
         self._substep("Planning the layout for %s" % self.cfg.disk)
         self.layout = disk.plan_layout(
             self.cfg.disk,
@@ -145,12 +192,33 @@ class Session:
             esp_gb=self.cfg.esp_gb,
             separate_home=self.cfg.separate_home,
             ram_bytes=self.hw.ram_bytes,
+            mode=self.cfg.mode,
+            encryption=self.cfg.encryption,
+            volumes=self.cfg.volumes,
+            raid=self.cfg.raid,
+            raid_members=raid_members,
+            keep_esp=self.cfg.keep_esp,
+            alongside_number=alongside_number,
         )
         self.logger.log("layout: %s" % self.layout.to_dict(), "plan")
+        self.logger.log("storage stack: %s" % " -> ".join(self.layout.stack()), "plan")
         self.package_list = packages.required_packages(self.cfg, self.hw)
         self.logger.log("packages: %s" % " ".join(self.package_list), "plan")
         if not ctx.dry_run:
             os.makedirs(ctx.target, exist_ok=True)
+
+    def _check_architecture(self) -> None:
+        """Refuse to place a system the medium cannot supply packages for."""
+        if self.ctx.dry_run:
+            return
+        machine = platform.machine().lower()
+        host = "aarch64" if machine in ("aarch64", "arm64") else "x86_64"
+        if self.cfg.arch != host:
+            raise RuntimeError(
+                "this medium runs on %s but an %s system was requested. Packages and the "
+                "EFI boot loader have to come from a medium built for %s."
+                % (host, self.cfg.arch, self.cfg.arch)
+            )
 
     def _disk_size(self) -> int:
         try:
@@ -160,9 +228,12 @@ class Session:
 
     def _disk(self) -> None:
         assert self.layout is not None
-        self._substep("Erasing %s and creating partitions" % self.cfg.disk)
-        disk.wipe_signatures(self.ctx, self.layout)
-        disk.apply_layout(self.ctx, self.layout)
+        if self.cfg.alongside:
+            self._substep("Adding one partition in the free space of %s" % self.cfg.disk)
+        else:
+            self._substep("Erasing %s and creating partitions" % self.cfg.disk)
+            disk.wipe_signatures(self.ctx, self.layout)
+        disk.apply_layout(self.ctx, self.layout, passphrase=self.cfg.luks_passphrase)
 
     def _pacstrap(self) -> None:
         packages.pacstrap(self.ctx, self.cfg, self.package_list)
@@ -193,6 +264,13 @@ class Session:
     def _locale(self) -> None:
         system.configure(self.ctx, self.cfg, self.hw, self.layout)  # type: ignore[arg-type]
 
+    def _crypto(self) -> None:
+        self._substep(
+            "Setting the initramfs hooks for %s"
+            % ("an encrypted root" if self.cfg.encrypted else "this layout")
+        )
+        system.configure_crypto(self.ctx, self.cfg, self.layout)
+
     def _users(self) -> None:
         system.accounts(self.ctx, self.cfg)
 
@@ -203,6 +281,9 @@ class Session:
     def _bootloader(self) -> None:
         assert self.layout is not None
         bootloader.install(self.ctx, self.cfg, self.layout)
+
+    def _aur(self) -> None:
+        aur.install(self.ctx, self.cfg)
 
     def _services(self) -> None:
         network.write_profiles(self.ctx, self.cfg)
@@ -228,9 +309,11 @@ class Session:
             ("extras", self._extras),
             ("fstab", self._fstab),
             ("locale", self._locale),
+            ("crypto", self._crypto),
             ("users", self._users),
             ("initramfs", self._initramfs),
             ("bootloader", self._bootloader),
+            ("aur", self._aur),
             ("services", self._services),
             ("finish", self._finish),
         ]

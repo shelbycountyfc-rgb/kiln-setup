@@ -126,6 +126,54 @@ def desktop_packages(name: str) -> list:
     return packages
 
 
+#: How the disk is used: wiped, or shared with a system that is already there.
+INSTALL_MODES = {
+    "erase": ("Erase the disk", "The whole disk is used; every partition on it is deleted."),
+    "alongside": (
+        "Install alongside",
+        "Keep the existing system and install into the free space, reusing its EFI partition.",
+    ),
+}
+
+#: Full-disk encryption of the root filesystem.
+ENCRYPTION = {
+    "none": ("No encryption", "The disk can be read by anyone who has the machine."),
+    "luks": ("LUKS2 encryption", "The root filesystem is unlocked with a passphrase at boot."),
+}
+
+#: What the filesystem sits on inside the root partition.
+VOLUMES = {
+    "partitions": ("Plain partitions", "The filesystem sits directly on the partition."),
+    "lvm": ("LVM", "A volume group makes resizing, snapshots and extra volumes easier."),
+}
+
+#: mdadm levels the wizard offers, and what each one costs.
+RAID = {
+    "none": ("No array", "One disk holds the system."),
+    "1": ("RAID 1 (mirror)", "Every write goes to all disks; survives a disk failure."),
+    "5": ("RAID 5 (parity)", "The space of one disk holds parity; survives one failure."),
+    "10": ("RAID 10 (mirror and stripe)", "Fast and redundant; needs at least four disks."),
+}
+
+#: Signing the boot files so Secure Boot accepts them.
+SECURE_BOOT = {
+    "off": ("Do not sign", "Secure Boot has to stay off, as for any Arch install medium."),
+    "sbctl": ("Sign with sbctl", "Own keys and signatures for the kernel and the boot loader."),
+}
+
+#: Architectures the installer can put on the disk.
+ARCHES = {
+    "x86_64": ("x86_64 (64-bit PC)", "The usual desktop and laptop architecture."),
+    "aarch64": ("aarch64 (64-bit ARM)", "ARM machines; needs a medium built for aarch64."),
+}
+
+#: Whether packages may be built from the AUR.
+AUR = {
+    "off": ("Official repositories only", "Every package is signed and comes from Arch."),
+    "on": ("Allow AUR packages", "Recipes from the AUR are built on this machine while installing."),
+}
+
+
 def desktop_service(name: str) -> str:
     """Display manager unit for a desktop, or ``""`` when there is none."""
     return {

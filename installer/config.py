@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from . import options
 from .catalog import is_multilib_package
-from .disk import FILESYSTEMS, MIN_DISK_BYTES
+from .disk import FILESYSTEMS, MIN_DISK_BYTES, RAID_MINIMUM
 
 DEFAULT_GROUPS = ("wheel", "audio", "video", "optical", "storage", "scanner", "power")
 
@@ -24,6 +24,8 @@ TIMEZONE_RE = re.compile(r"^[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+)*$")
 DISK_RE = re.compile(r"^/dev/[a-zA-Z0-9/_.-]{1,60}$")
 #: Arch package names are lower case, and may carry @ . _ + -
 PACKAGE_RE = re.compile(r"^[a-z0-9][a-z0-9@._+-]{0,79}$")
+#: AUR package names follow the same rules as repository package names.
+AUR_RE = PACKAGE_RE
 GROUP_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
 
@@ -40,8 +42,7 @@ class UserAccount:
 @dataclass
 class InstallConfig:
     disk: str = ""
-    #: Only whole-disk installation is offered; the field exists so a later
-    #: "install alongside" mode does not have to change the schema.
+    #: ``erase`` wipes the disk; ``alongside`` keeps the existing system.
     mode: str = "erase"
     confirm_erase: bool = False
     efi: bool = True
@@ -51,6 +52,19 @@ class InstallConfig:
     swap_gb: float | None = None
     esp_gb: float = 1.0
     separate_home: bool = False
+    # -- storage stack ------------------------------------------------------
+    encryption: str = "none"
+    luks_passphrase: str = ""
+    volumes: str = "partitions"
+    raid: str = "none"
+    raid_disks: list = field(default_factory=list)
+    keep_esp: str = ""
+    # -- firmware and software ---------------------------------------------
+    secure_boot: bool = False
+    aur: bool = False
+    aur_packages: list = field(default_factory=list)
+    arch: str = "x86_64"
+    # -- the system ---------------------------------------------------------
     hostname: str = "archlinux"
     timezone: str = "UTC"
     locale: str = "en_US.UTF-8"
@@ -86,6 +100,29 @@ class InstallConfig:
             config.swap_gb = None
         config.esp_gb = float(data.get("espGb", 1.0) or 1.0)
         config.separate_home = bool(data.get("separateHome", False))
+        if config.root_fs == "btrfs":
+            # The subvolume layout already gives /home its own subvolume.
+            config.separate_home = False
+        config.encryption = str(data.get("encryption", "none")).strip().lower() or "none"
+        config.luks_passphrase = str(data.get("luksPassphrase", ""))
+        config.volumes = str(data.get("volumes", "partitions")).strip().lower() or "partitions"
+        config.raid = str(data.get("raid", "none")).strip().lower() or "none"
+        raid_disks = data.get("raidDisks") or []
+        if isinstance(raid_disks, str):
+            raid_disks = [d for d in re.split(r"[\s,]+", raid_disks) if d]
+        config.raid_disks = [str(d).strip() for d in raid_disks if str(d).strip()]
+        config.keep_esp = str(data.get("keepEsp", "")).strip()
+        config.secure_boot = bool(data.get("secureBoot", False))
+        config.aur = bool(data.get("aur", False))
+        aur_packages = data.get("aurPackages") or []
+        if isinstance(aur_packages, str):
+            aur_packages = [p for p in re.split(r"[\s,]+", aur_packages) if p]
+        config.aur_packages = [str(p).strip() for p in aur_packages if str(p).strip()]
+        config.arch = str(data.get("arch", "x86_64")).strip().lower() or "x86_64"
+        if config.mode == "alongside":
+            # There is no free space to give a swap partition of our own.
+            config.swap = False
+            config.separate_home = False
         config.hostname = str(data.get("hostname", "archlinux")).strip() or "archlinux"
         config.timezone = str(data.get("timezone", "UTC")).strip() or "UTC"
         config.locale = str(data.get("locale", "en_US.UTF-8")).strip() or "en_US.UTF-8"
@@ -97,7 +134,7 @@ class InstallConfig:
         config.multilib = bool(data.get("multilib", True))
         packages = data.get("packages") or []
         if isinstance(packages, str):
-            packages = [p for p in re.split(r"[\s,]+", packages) if p]
+            packages = [p for p in re.split(r"[\s,]+\s*".rstrip(), packages) if p]
         config.packages = [str(p).strip() for p in packages if str(p).strip()]
         config.root_password = str(data.get("rootPassword", ""))
         config.wifi_ssid = str(data.get("wifiSsid", "")).strip()
@@ -125,6 +162,29 @@ class InstallConfig:
     def desktop_requested(self) -> bool:
         return self.desktop != "minimal"
 
+    @property
+    def encrypted(self) -> bool:
+        return self.encryption == "luks"
+
+    @property
+    def uses_lvm(self) -> bool:
+        return self.volumes == "lvm"
+
+    @property
+    def uses_raid(self) -> bool:
+        return self.raid != "none"
+
+    @property
+    def alongside(self) -> bool:
+        return self.mode == "alongside"
+
+    @property
+    def kernel_package(self) -> str:
+        """The kernel package name for the architecture being installed."""
+        if self.arch == "x86_64":
+            return self.kernel
+        return "linux-aarch64"
+
     # -- validation --------------------------------------------------------
     # Each page checks only the answers it collects.  A page that reports the
     # empty root password while offering no field for it is a dead end: that is
@@ -134,18 +194,23 @@ class InstallConfig:
         return self.disk_errors(disk_size) + self.software_errors() + self.system_errors()
 
     def disk_errors(self, disk_size: int = 0) -> list:
-        """Only the answers collected on the Disk page."""
+        """Only the answers collected on the disk and storage pages."""
         errors = []
-        if self.mode != "erase":
-            errors.append("Only a whole-disk installation is supported.")
+        if self.mode not in options.INSTALL_MODES:
+            errors.append("Unknown installation mode %r." % self.mode)
         if not DISK_RE.match(self.disk):
             errors.append("Select the disk Arch Linux should be installed on (/dev/...).")
         elif disk_size and disk_size < MIN_DISK_BYTES:
             errors.append(
                 "The selected disk is smaller than 20 GiB; Arch Linux needs at least that much."
             )
-        if not self.confirm_erase:
+        if self.mode == "erase" and not self.confirm_erase:
             errors.append("The disk erase confirmation must be accepted.")
+        if self.alongside and not self.efi:
+            errors.append(
+                "Installing alongside another system needs UEFI: a legacy boot loader "
+                "would overwrite the other system's."
+            )
         if self.root_fs not in FILESYSTEMS:
             errors.append("Unsupported filesystem %r." % self.root_fs)
         if self.bootloader not in options.BOOTLOADERS:
@@ -156,6 +221,51 @@ class InstallConfig:
             errors.append("The EFI system partition must be between 0.1 and 4 GiB.")
         if self.swap_gb is not None and not 0 <= self.swap_gb <= 4096:
             errors.append("Swap size is out of range.")
+
+        # -- encryption, volume manager, array ------------------------------
+        if self.encryption not in options.ENCRYPTION:
+            errors.append("Unknown encryption choice %r." % self.encryption)
+        if self.encrypted and len(self.luks_passphrase) < 8:
+            errors.append("The disk encryption passphrase must be at least 8 characters.")
+        if self.volumes not in options.VOLUMES:
+            errors.append("Unknown volume manager %r." % self.volumes)
+        if self.raid not in options.RAID:
+            errors.append("Unknown RAID level %r." % self.raid)
+        elif self.uses_raid:
+            if self.alongside:
+                errors.append("A RAID array cannot be created in the free space of a disk.")
+            minimum = RAID_MINIMUM.get(self.raid, 2)
+            members = [d for d in self.raid_disks if d]
+            if len(members) < minimum - 1:
+                errors.append(
+                    "RAID%s needs %d disks in total; only %d were selected."
+                    % (self.raid, minimum, len(members) + 1)
+                )
+            if len(set(members)) != len(members):
+                errors.append("A disk was selected twice for the array.")
+            for member in members:
+                if member == self.disk:
+                    errors.append("The installation disk cannot also be an array member.")
+                elif not DISK_RE.match(member):
+                    errors.append("Invalid array member %r." % member)
+        if self.alongside and not self.keep_esp:
+            errors.append(
+                "No EFI system partition was found to keep. An installation alongside "
+                "another system reuses that system's boot partition."
+            )
+        if self.root_fs == "btrfs" and self.separate_home:
+            errors.append("Btrfs uses a /home subvolume; a separate /home partition is redundant.")
+
+        # -- firmware and architecture --------------------------------------
+        if self.secure_boot and not self.efi:
+            errors.append("Secure Boot signing needs UEFI firmware.")
+        if self.secure_boot and self.alongside:
+            errors.append(
+                "Signing the boot files would take over the other system's boot loader; "
+                "turn Secure Boot signing off when installing alongside."
+            )
+        if self.arch not in options.ARCHES:
+            errors.append("Unknown architecture %r." % self.arch)
         return errors
 
     def software_errors(self) -> list:
@@ -181,6 +291,20 @@ class InstallConfig:
                 errors.append(
                     "%s needs 32-bit libraries: turn on multilib in Software." % package
                 )
+        if self.aur_packages and not self.aur:
+            errors.append("AUR packages were listed but AUR support is turned off.")
+        seen_aur = set()
+        for package in self.aur_packages:
+            if not AUR_RE.match(package):
+                errors.append("Invalid AUR package name %r." % package)
+            elif package in seen_aur:
+                errors.append("%s was listed twice for the AUR." % package)
+            seen_aur.add(package)
+        if self.arch != "x86_64" and self.kernel != "linux":
+            errors.append(
+                "%s boots one kernel; choose linux for an %s installation."
+                % (self.arch, self.arch)
+            )
         return errors
 
     def system_errors(self) -> list:
@@ -230,6 +354,15 @@ class InstallConfig:
             "swapGb": self.swap_gb,
             "espGb": self.esp_gb,
             "separateHome": self.separate_home,
+            "encryption": self.encryption,
+            "volumes": self.volumes,
+            "raid": self.raid,
+            "raidDisks": list(self.raid_disks),
+            "keepEsp": self.keep_esp,
+            "secureBoot": self.secure_boot,
+            "aur": self.aur,
+            "aurPackages": list(self.aur_packages),
+            "arch": self.arch,
             "hostname": self.hostname,
             "timezone": self.timezone,
             "locale": self.locale,
