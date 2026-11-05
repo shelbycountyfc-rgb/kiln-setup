@@ -107,7 +107,8 @@ def create_user(ctx: Context, cfg: InstallConfig) -> None:
 def configure_sudoers(ctx: Context) -> None:
     ctx.write_target(
         "etc/sudoers.d/10-wheel",
-        "# Installed by the Arch Linux installer.\n%wheel ALL=(ALL:ALL) ALL\n",
+        "# Written by Kiln Setup, an unofficial installer for Arch Linux.\n"
+        "%wheel ALL=(ALL:ALL) ALL\n",
         mode=0o440,
     )
 

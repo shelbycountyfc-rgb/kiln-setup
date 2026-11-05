@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import APP_NAME, __version__
+from . import APP_NAME, __version__, brand
 
 GIB = 1024 ** 3
 
@@ -59,6 +59,7 @@ def _check() -> int:
         print("           %-14s %-6s %-6s %-10s %s" % (name, role, fs, size, mountpoint))
     cfg = InstallConfig(disk=target.device, efi=hw.firmware == "uefi", confirm_erase=True)
     print("Packages : %s" % " ".join(packages.required_packages(cfg, hw)))
+    print("Firmware : %s (%s)" % (" ".join(packages.firmware_packages(cfg, hw)), cfg.firmware))
     return 0
 
 
@@ -113,10 +114,10 @@ def _selftest() -> int:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
-        prog="arch-installer",
+        prog="kiln-setup",
         description=(
-            "%s: a guided graphical installation of Arch Linux, following the "
-            "official installation guide." % APP_NAME
+            "%s: %s, following the official installation guide."
+            % (APP_NAME, brand.TAGLINE)
         ),
     )
     parser.add_argument(
@@ -133,7 +134,7 @@ def main(argv=None) -> int:
     )
     parser.add_argument("--check", action="store_true", help="print the detected hardware and layout, then exit")
     parser.add_argument("--selftest", action="store_true", help="run the pipeline against simulated hardware, dry")
-    parser.add_argument("--version", action="version", version="arch-installer " + __version__)
+    parser.add_argument("--version", action="version", version="kiln-setup " + __version__)
     args = parser.parse_args(argv)
 
     if args.check:

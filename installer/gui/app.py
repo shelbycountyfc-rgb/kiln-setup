@@ -49,8 +49,10 @@ class Installer:
         self._current = ""
         self._compact = None
 
+        from .. import brand
+
         self.root = tk.Tk()
-        self.root.title("Arch Linux Setup")
+        self.root.title("%s - %s" % (brand.PRODUCT_TITLE, brand.TAGLINE))
         self.theme = theme_module.apply(self.root)
         self._size_window()
         self._install_cursor()
@@ -150,6 +152,7 @@ class Installer:
             "desktop": chosen["desktop"],
             "kernel": chosen["kernel"],
             "microcode": chosen["microcode"],
+            "firmware": chosen["firmware"],
             "multilib": True,
             "packages": list(self.recommendation.packages),
             "rootPassword": "",

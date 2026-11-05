@@ -4,10 +4,10 @@
 # The medium boots on UEFI through systemd-boot and on legacy BIOS through
 # syslinux, and starts the graphical installer on tty1 through an autologin.
 
-iso_name="arch-gui-installer"
-iso_label="ARCH_GUI"
-iso_publisher="Arch GUI Installer <https://archlinux.org>"
-iso_application="Arch Linux GUI installer"
+iso_name="kiln-setup"
+iso_label="KILN_SETUP"
+iso_publisher="Kiln Setup, unofficial <https://github.com/shelbycountyfc-rgb/arch-gui-installer>"
+iso_application="Kiln Setup - an unofficial installer for Arch Linux"
 # A revision suffix lets a corrected medium be built beside the previous one,
 # which matters when the older image is still open on the build machine.
 iso_version="$(date +%Y.%m.%d)${ISO_REVISION:+-$ISO_REVISION}"

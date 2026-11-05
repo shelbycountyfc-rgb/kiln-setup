@@ -91,6 +91,8 @@ class HardwareProfile:
     battery: bool = False
     bluetooth: bool = False
     touchpad: bool = False
+    #: PCI vendor ids (``lspci -nn``) whose firmware is its own package.
+    firmware_vendors: list = field(default_factory=list)
 
     # -- derived values the pages and the engine use ------------------------
     @property
@@ -136,6 +138,7 @@ class HardwareProfile:
             "battery": self.battery,
             "bluetooth": self.bluetooth,
             "touchpad": self.touchpad,
+            "firmwareVendors": list(self.firmware_vendors),
             "formFactor": self.form_factor,
         }
 
@@ -274,12 +277,37 @@ def _disks_from_sysfs(hw: HardwareProfile) -> None:
         )
 
 
-def _gpus(ctx: Context, hw: HardwareProfile) -> None:
-    out = ""
+#: ``[10de:2504]`` in ``lspci -nn``: the vendor id is the part before the colon.
+PCI_ID_RE = re.compile(r"\[([0-9a-fA-F]{4}):[0-9a-fA-F]{4}\]")
+
+
+def _lspci(ctx: Context) -> str:
     try:
-        out = ctx.captured(["lspci", "-nn"], quiet=True)
+        return ctx.captured(["lspci", "-nn"], quiet=True)
     except Exception:
-        out = ""
+        return ""
+
+
+def _firmware_vendors(ctx: Context, hw: HardwareProfile) -> None:
+    """Every PCI vendor present in this machine, in the order found.
+
+    Arch ships firmware as one package per vendor (``linux-firmware-amdgpu``,
+    ``linux-firmware-nvidia``, ``linux-firmware-realtek``, ...), so this is what
+    an install that matches the machine needs.  Collecting every device, not
+    only the graphics ones, is what keeps the Wi-Fi and Bluetooth blobs on a
+    machine whose GPU vendor would otherwise be the only one installed.
+    """
+    found: list = []
+    for line in _lspci(ctx).splitlines():
+        for vendor in PCI_ID_RE.findall(line):
+            vendor = vendor.lower()
+            if vendor not in found:
+                found.append(vendor)
+    hw.firmware_vendors = found
+
+
+def _gpus(ctx: Context, hw: HardwareProfile) -> None:
+    out = _lspci(ctx)
     for line in out.splitlines():
         if not re.search(r"(VGA compatible|3D controller|Display controller)", line):
             continue
@@ -358,6 +386,7 @@ def detect(ctx: Context) -> HardwareProfile:
     _firmware(hw)
     _disks(ctx, hw)
     _gpus(ctx, hw)
+    _firmware_vendors(ctx, hw)
     _network(hw)
     _audio(hw)
     _peripherals(hw)
@@ -383,6 +412,7 @@ def simulate() -> HardwareProfile:
         battery=True,
         bluetooth=True,
         touchpad=True,
+        firmware_vendors=["1002", "8086", "10ec"],
     )
     disk = Disk(
         device="/dev/nvme0n1",

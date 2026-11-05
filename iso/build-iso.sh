@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Build a bootable Arch Linux GUI installer ISO.
+# Build a bootable Kiln Setup medium: an unofficial installer image for Arch
+# Linux, not an official Arch Linux release.
 #
 # The image is a normal archiso image: the live root is a squashfs, the kernel
 # and initramfs are written by mkinitcpio's archiso hook, and the medium boots
@@ -79,7 +80,7 @@ for tool in mmd mcopy; do
 done
 
 mkdir -p "$OUT_DIR"
-[[ -z "$WORK_DIR" ]] && WORK_DIR="$(mktemp -d /tmp/arch-gui-installer.XXXXXX)"
+[[ -z "$WORK_DIR" ]] && WORK_DIR="$(mktemp -d /tmp/kiln-setup.XXXXXX)"
 mkdir -p "$WORK_DIR"
 
 # The profile is copied: mkarchiso fills airootfs and writes boot files, and a
@@ -106,7 +107,7 @@ seed_boot_configs() {
   # Say what this medium is on the boot menu.
   { grep -rl 'Arch Linux install medium' "$PROFILE/efiboot" "$PROFILE/syslinux" 2>/dev/null || true; } \
     | while read -r menu; do
-        sed -i 's/Arch Linux install medium/Arch Linux GUI installer/g' "$menu"
+        sed -i 's/Arch Linux install medium/Kiln Setup - install Arch Linux/g' "$menu"
       done
   # Keep the kernel messages. With 'quiet' a boot that ends in the emergency
   # shell looks like a blank screen, and this medium has to be usable for

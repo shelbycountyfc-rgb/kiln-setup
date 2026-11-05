@@ -94,6 +94,8 @@ class WelcomePage(Page):
     show_back = False
 
     def build(self, body: tk.Misc) -> None:
+        from .. import brand
+
         theme = self.theme
         tk.Label(
             body,
@@ -149,6 +151,11 @@ class WelcomePage(Page):
                 "and start the installer again.",
                 kind="warn",
             ).pack(fill="x", pady=(0, 12))
+
+        Notice(
+            body, theme,
+            brand.DISCLAIMER,
+        ).pack(fill="x", pady=(0, 12))
 
         Notice(
             body, theme,
@@ -758,6 +765,23 @@ class SoftwarePage(Page):
             values=list(microcode_labels.values()), state="readonly", width=24,
         ).pack(side="left")
 
+        holder = form.field(
+            "Firmware", "Blobs the kernel loads for this computer's chips."
+        )
+        firmware_labels = {key: value[0] for key, value in options.FIRMWARE.items()}
+        self._firmware_labels = firmware_labels
+        self.firmware_label = tk.StringVar(
+            value=firmware_labels.get(form_data["firmware"], firmware_labels["auto"])
+        )
+        firmware_box = ttk.Combobox(
+            holder, textvariable=self.firmware_label,
+            values=list(firmware_labels.values()), state="readonly", width=24,
+        )
+        firmware_box.pack(side="left")
+        firmware_box.bind("<<ComboboxSelected>>", self._firmware_changed)
+        self.firmware_note = hint(kernel_card.body, theme, "")
+        self.firmware_note.pack(fill="x", pady=(6, 0))
+
         multilib_card = Card(
             body, theme, "32-bit software (multilib)",
             "Arch installs 64-bit only by default. Turning this on adds the [multilib] "
@@ -917,9 +941,31 @@ class SoftwarePage(Page):
         self.category_list.selection_set("end")
         self._category_changed()
 
+    # -- firmware ----------------------------------------------------------
+    def _firmware_choice(self) -> str:
+        reverse = {label: key for key, label in self._firmware_labels.items()}
+        return reverse.get(self.firmware_label.get(), "auto")
+
+    def _firmware_changed(self, _event=None) -> None:
+        self.app.form["firmware"] = self._firmware_choice()
+        self._refresh_firmware_note()
+        self._refresh_selection_count()
+
+    def _refresh_firmware_note(self) -> None:
+        """Spell out the packages the current choice installs."""
+        try:
+            config = InstallConfig.from_dict(self.app.form)
+        except (TypeError, ValueError):
+            self.firmware_note.configure(text="")
+            return
+        config.firmware = self._firmware_choice()
+        installed = packages.firmware_packages(config, self.app.hardware)
+        self.firmware_note.configure(text="Installs %s." % ", ".join(installed))
+
     # -- form --------------------------------------------------------------
     def enter(self) -> None:
         self._refresh_cards()
+        self._refresh_firmware_note()
         self._refresh_package_list()
         self._refresh_selection_count()
 
@@ -935,6 +981,7 @@ class SoftwarePage(Page):
         form["desktop"] = self.desktop_var.get()
         reverse = {label: key for key, label in self._microcode_labels.items()}
         form["microcode"] = reverse.get(self.microcode_label.get(), "auto")
+        form["firmware"] = self._firmware_choice()
         form["packages"] = sorted(self._selected)
 
     def errors(self) -> list:

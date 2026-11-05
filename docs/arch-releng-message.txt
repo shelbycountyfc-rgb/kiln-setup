@@ -1,0 +1,56 @@
+To: arch-releng@lists.archlinux.org
+Subject: Per-machine installer defaults, and whether a graphical medium is in scope
+
+Hello,
+
+I maintain an unofficial graphical installer for Arch Linux, built on archiso:
+it uses the releng profile with mkarchiso, boots through syslinux on BIOS and
+systemd-boot on UEFI, and installs the system with pacstrap and arch-chroot
+following the installation guide. It is called Kiln Setup and it is explicitly
+not an official Arch medium; I am not asking you to adopt it.
+
+I am writing because building it raised two questions that are really about
+archiso and the official medium, and I would rather ask than assume.
+
+1. Defaults that follow the machine.
+
+Most of what an installer has to ask is determined by the hardware it is running
+on: the desktop that fits the RAM, the microcode package, the boot loader from
+the firmware mode, the swap size, the graphics driver, and which firmware
+packages are needed. Arch's linux-firmware is now a metapackage over the vendor
+splits, so a machine with only an NVIDIA card still pulls roughly 28 MiB of
+amdgpu firmware, and an install can instead take linux-firmware-<vendor> for the
+PCI vendors actually present. Instance detection here is just lspci -nn plus
+/proc and /sys.
+
+Is per-machine narrowing of the firmware set something archinstall would want?
+It is a small, contained change (map PCI vendor id to the split package, fall
+back to the metapackage when nothing is detected), and it is the kind of thing
+that helps the small-disk and thin-client cases.
+
+2. Scope of the official medium.
+
+I understand the live medium is deliberately minimal and that archinstall is the
+official guided installer. Is a graphical front end on the official medium
+something releng would consider at all, or is the console medium a fixed
+decision? If it is fixed, I would find it useful to know whether that is a
+policy choice (which I will respect and stop asking about) or a matter of
+maintenance capacity, and whether anything short of a full graphical medium -
+for example a documented, supported way for derivative media to reuse the
+releng profile - would be welcome.
+
+Either way I am not proposing to change anything on archiso's side today; the
+project builds its own image with the stock releng profile and ships no patched
+Arch packages.
+
+The project keeps Arch's branding out of its own name and states in its window,
+its boot menu and its release notes that it is unofficial and unaffiliated.
+
+Repository: https://github.com/shelbycountyfc-rgb/arch-gui-installer
+
+Thanks for the work on archiso and the release images - building a medium that
+boots on both firmware modes and still reaches a shell when something fails is
+more delicate than it looks.
+
+Regards,
+<your name>

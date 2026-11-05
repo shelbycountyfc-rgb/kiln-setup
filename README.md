@@ -1,7 +1,12 @@
-# Arch Linux GUI Installer + Control Panel
+# Kiln Setup + Control Panel
 
-A Windows-Setup-style graphical installer for Arch Linux, and a control panel
-that manages the installed system afterwards. Both are native desktop
+> **Unofficial project.** Kiln Setup is not affiliated with, endorsed by, or
+> supported by the Arch Linux project, and this is not an official Arch Linux
+> installation medium. "Arch Linux" is a trademark of the Arch Linux project and
+> is used here only to say what this software installs.
+
+A Windows-Setup-style graphical installer that installs Arch Linux, and a control
+panel that manages the installed system afterwards. Both are native desktop
 applications (Python + Tk) — no browser, no local web server, nothing listening
 on a port.
 
@@ -16,6 +21,7 @@ configuration, boot loader. You end up with a normal Arch system, maintained wit
 ```
 installer/            the installation wizard
   __main__.py         CLI: --simulate, --dry-run, --kiosk, --check, --selftest
+  brand.py            the project name, ISO label and the trademark disclaimer
   context.py          logging, command execution, target files, redaction
   hardware.py         CPU/RAM/firmware/GPU/disk/network detection
   disk.py             GPT layout planning, sgdisk, mkfs, mounts
@@ -54,7 +60,7 @@ docs/ARCHITECTURE.md  how the pieces fit together
 | Hardware | CPU, RAM, firmware/Secure Boot, GPU, every disk and its partitions |
 | Disk | Target disk, filesystem (ext4/btrfs/XFS), swap, EFI partition size, separate `/home`, live layout preview, erase confirmation |
 | System | Hostname, time zone, locale, keyboard, boot loader, root password, daily account, optional Wi-Fi |
-| Software | Desktop, kernel, microcode, **multilib switch**, package picker with categories and repository search |
+| Software | Desktop, kernel, microcode, **firmware set (matched to this machine or complete)**, **multilib switch**, package picker with categories and repository search |
 | Review | Every choice, the exact partition table and the selected software |
 | Install | 11 phases, weighted percentage, per-phase state, live log |
 | Finish | Restart or power off |
@@ -178,9 +184,9 @@ From any Linux host with Docker:
 Write it to a stick or boot it:
 
 ```bash
-sudo dd if=arch-gui-installer-<date>-x86_64.iso of=/dev/sdX bs=4M status=progress oflag=sync
+sudo dd if=kiln-setup-<date>-x86_64.iso of=/dev/sdX bs=4M status=progress oflag=sync
 qemu-system-x86_64 -enable-kvm -m 4096 -bios /usr/share/edk2/x64/OVMF.4m.fd \
-  -cdrom arch-gui-installer-<date>-x86_64.iso
+  -cdrom kiln-setup-<date>-x86_64.iso
 ```
 
 ### Prebuilt image from GitHub
@@ -252,7 +258,7 @@ build. Test in a VM before using a real machine:
 
 ```bash
 qemu-system-x86_64 -enable-kvm -m 4096 -bios /usr/share/edk2/x64/OVMF.4m.fd \
-  -cdrom arch-gui-installer-<date>-x86_64.iso
+  -cdrom kiln-setup-<date>-x86_64.iso
 ```
 
 and check, in order: the window appearing, the disk being listed, the layout

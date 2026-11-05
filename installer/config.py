@@ -58,6 +58,7 @@ class InstallConfig:
     desktop: str = "kde"
     kernel: str = "linux"
     microcode: str = "auto"
+    firmware: str = "auto"
     multilib: bool = True
     packages: list = field(default_factory=list)
     root_password: str = ""
@@ -92,6 +93,7 @@ class InstallConfig:
         config.desktop = str(data.get("desktop", "kde")).strip().lower() or "kde"
         config.kernel = str(data.get("kernel", "linux")).strip().lower() or "linux"
         config.microcode = str(data.get("microcode", "auto")).strip().lower() or "auto"
+        config.firmware = str(data.get("firmware", "auto")).strip().lower() or "auto"
         config.multilib = bool(data.get("multilib", True))
         packages = data.get("packages") or []
         if isinstance(packages, str):
@@ -165,6 +167,8 @@ class InstallConfig:
             errors.append("Unknown kernel %r." % self.kernel)
         if self.microcode not in options.MICROCODE:
             errors.append("Unknown microcode choice %r." % self.microcode)
+        if self.firmware not in options.FIRMWARE:
+            errors.append("Unknown firmware choice %r." % self.firmware)
         seen = set()
         for package in self.packages:
             if not PACKAGE_RE.match(package):
@@ -233,6 +237,7 @@ class InstallConfig:
             "desktop": self.desktop,
             "kernel": self.kernel,
             "microcode": self.microcode,
+            "firmware": self.firmware,
             "multilib": self.multilib,
             "packages": list(self.packages),
             "wifiSsid": self.wifi_ssid,

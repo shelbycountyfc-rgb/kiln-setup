@@ -22,7 +22,6 @@ if TYPE_CHECKING:  # imported for annotations only; avoids a cycle at runtime
 #: The guide's essential set, plus what the wizard promises (networking, tools).
 BASE_PACKAGES = (
     "base",
-    "linux-firmware",
     "sudo",
     "nano",
     "vim",
@@ -168,6 +167,41 @@ def bootloader_packages(cfg: InstallConfig) -> list:
     return ["grub", "efibootmgr"] if cfg.efi else ["grub"]
 
 
+#: PCI vendor id -> the vendor split of ``linux-firmware`` that serves it.
+FIRMWARE_VENDORS = {
+    "1002": "linux-firmware-amdgpu",
+    "10de": "linux-firmware-nvidia",
+    "8086": "linux-firmware-intel",
+    "168c": "linux-firmware-atheros",
+    "14e4": "linux-firmware-broadcom",
+    "14c3": "linux-firmware-mediatek",
+    "10ec": "linux-firmware-realtek",
+    "1013": "linux-firmware-cirrus",
+}
+
+
+def firmware_packages(cfg: InstallConfig, hardware=None) -> list:
+    """The firmware to install, per the choice made on the Software page.
+
+    ``auto`` installs one package per vendor found on the PCI bus plus the
+    unsorted set.  When nothing was identified (a virtual machine, or ``lspci``
+    missing) the full set is used instead: a machine without firmware does not
+    boot its hardware.  ``all`` is the Arch default, where ``linux-firmware``
+    is a metapackage that pulls every vendor.
+    """
+    if (cfg.firmware or "auto").lower() == "all":
+        return ["linux-firmware"]
+    vendors = list(getattr(hardware, "firmware_vendors", []) or [])
+    if not vendors:
+        return ["linux-firmware"]
+    packages = ["linux-firmware-other"]
+    for vendor in vendors:
+        package = FIRMWARE_VENDORS.get(str(vendor).lower())
+        if package and package not in packages:
+            packages.append(package)
+    return packages
+
+
 def microcode_package(cfg: InstallConfig, hardware) -> str:
     if cfg.microcode == "none":
         return ""
@@ -183,6 +217,7 @@ def required_packages(cfg: InstallConfig, hardware=None) -> list:
     ``[multilib]`` section, which is written after the base system exists.
     """
     packages: list = list(BASE_PACKAGES)
+    packages += firmware_packages(cfg, hardware)
     packages.append(cfg.kernel)
     packages += filesystem_packages(cfg.root_fs)
     packages += bootloader_packages(cfg)

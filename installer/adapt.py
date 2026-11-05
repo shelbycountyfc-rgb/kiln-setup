@@ -194,6 +194,7 @@ def recommend(hw, live: dict | None = None) -> Recommendation:
         "desktop": _desktop(hw),
         "kernel": "linux",
         "microcode": "auto",
+        "firmware": "auto",
         "keymap": live.get("keymap", "us"),
         "locale": live.get("locale", "en_US.UTF-8"),
         "timezone": live.get("timezone", "UTC"),
@@ -213,6 +214,15 @@ def recommend(hw, live: dict | None = None) -> Recommendation:
     )
     if hw.microcode:
         header.append(("Microcode", "%s, matching the %s CPU." % (hw.microcode, hw.cpu_vendor_label)))
+    header.append(
+        (
+            "Firmware",
+            "Only the firmware packages for the adapters this computer has; "
+            "choose All firmware in Software for the full set."
+            if getattr(hw, "firmware_vendors", None)
+            else "The full firmware set, because no adapter was identified to narrow it down.",
+        )
+    )
     header.append(
         (
             "Swap",

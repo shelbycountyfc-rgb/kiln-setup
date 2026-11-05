@@ -16,7 +16,7 @@ from .context import Context, uuid_of
 from .disk import DiskPlan
 
 GRUB_HEADER = """\
-# Written by the Arch Linux installer.
+# Written by Kiln Setup, an unofficial installer for Arch Linux.
 GRUB_DEFAULT=0
 GRUB_TIMEOUT=5
 GRUB_TIMEOUT_STYLE=menu

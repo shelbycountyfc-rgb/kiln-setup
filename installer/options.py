@@ -31,6 +31,11 @@ BOOTLOADERS = {
     "grub": ("GRUB", "Works on UEFI and legacy BIOS, more options and themes."),
 }
 
+FIRMWARE = {
+    "auto": ("Match this computer", "Only the firmware for the chips this computer has."),
+    "all": ("All firmware", "The full linux-firmware set, including hardware added later."),
+}
+
 MICROCODE = {
     "auto": ("Detect for this CPU", "amd-ucode or intel-ucode, chosen from the CPU vendor."),
     "none": ("Do not install", "Only for virtual machines."),

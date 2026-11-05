@@ -165,6 +165,8 @@ class StepRail(tk.Frame):
         self._rows: dict[str, tuple] = {}
         self._order: list = []
 
+        from .. import brand as branding
+
         brand = tk.Frame(self, bg=theme.rail)
         brand.pack(fill="x", padx=20, pady=(22, 0))
         mark = tk.Canvas(brand, width=20, height=20, bg=theme.rail, highlightthickness=0, bd=0)
@@ -175,7 +177,7 @@ class StepRail(tk.Frame):
         names = tk.Frame(brand, bg=theme.rail)
         names.pack(side="left", padx=(10, 0), fill="x", expand=True)
         tk.Label(
-            names, text="Arch Linux", bg=theme.rail, fg=theme.ink, font=theme.brand, anchor="w",
+            names, text=branding.PRODUCT, bg=theme.rail, fg=theme.ink, font=theme.brand, anchor="w",
         ).pack(fill="x")
         tk.Label(
             names, text="Setup", bg=theme.rail, fg=theme.rail_faint,

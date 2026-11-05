@@ -3,7 +3,7 @@
 # tty1 runs the installer (autologin), tty2 gives a root shell, and networking
 # is up before the window opens so mirrors can be reached immediately.
 [Unit]
-Description=Arch Linux installer
+Description=Kiln Setup live installer session
 After=network-online.target
 Wants=network-online.target
 

@@ -15,7 +15,7 @@ if ! command -v Xorg >/dev/null 2>&1; then
   exec /bin/bash -l
 fi
 
-echo "Starting the Arch Linux installer..."
+echo "Starting Kiln Setup, an unofficial Arch Linux installer..."
 if ! xinit /root/.xinitrc -- :0 vt1 -keeptty -nolisten tcp; then
   echo
   echo "The installer window could not start (X server exit)."
