@@ -221,7 +221,13 @@ for unit in iwd.service iwd.socket systemd-networkd.service systemd-networkd.soc
   ln -sf /dev/null "$PROFILE/airootfs/etc/systemd/system/$unit"
 done
 
-before="$(find "$OUT_DIR" -maxdepth 1 -name 'arch-gui-installer-*.iso' -printf '%f\n' 2>/dev/null | sort || true)"
+# The image name comes from the profile.  A rename that only touched
+# profiledef.sh used to leave this check looking for a file that is no longer
+# produced, and the build then failed after the image had already been written.
+ISO_NAME="$(sed -n 's/^iso_name="\(.*\)"$/\1/p' "$PROFILE_SRC/profiledef.sh" 2>/dev/null | head -1)"
+[[ -n "$ISO_NAME" ]] || die "cannot read iso_name from $PROFILE_SRC/profiledef.sh"
+
+before="$(find "$OUT_DIR" -maxdepth 1 -name "$ISO_NAME-*.iso" -printf '%f\n' 2>/dev/null | sort || true)"
 
 log "running mkarchiso (this takes a while: the live root is downloaded and squashed)"
 mkarchiso -v -w "$WORK_DIR/mkarchiso" -o "$OUT_DIR" -P "$JOBS" "$PROFILE"
@@ -229,7 +235,7 @@ mkarchiso -v -w "$WORK_DIR/mkarchiso" -o "$OUT_DIR" -P "$JOBS" "$PROFILE"
 # Newest by modification time, not by name: a revision suffix such as -r2 sorts
 # before the plain name, and picking the wrong file checksums yesterday's image.
 mapfile -t built < <(
-  find "$OUT_DIR" -maxdepth 1 -name 'arch-gui-installer-*.iso' -printf '%T@ %f\n' 2>/dev/null \
+  find "$OUT_DIR" -maxdepth 1 -name "$ISO_NAME-*.iso" -printf '%T@ %f\n' 2>/dev/null \
     | sort -n | cut -d' ' -f2-
 )
 [[ ${#built[@]} -gt 0 ]] || die "mkarchiso finished but produced no image in $OUT_DIR"
@@ -288,7 +294,8 @@ log "done: $IMAGE ($(du -h "$IMAGE" | cut -f1))"
 # One image of this installer is enough; an older one beside it is how a machine
 # ends up booting last week's code.
 shopt -s nullglob
-for old in "$OUT_DIR"/arch-gui-installer-*.iso "$OUT_DIR"/arch-gui-installer-*.iso.sha256; do
+for old in "$OUT_DIR"/"$ISO_NAME"-*.iso "$OUT_DIR"/"$ISO_NAME"-*.iso.sha256 \
+           "$OUT_DIR"/arch-gui-installer-*.iso "$OUT_DIR"/arch-gui-installer-*.iso.sha256; do
   [[ "$(basename "$old")" == "$(basename "$IMAGE")" ]] && continue
   [[ "$(basename "$old")" == "$(basename "$IMAGE").sha256" ]] && continue
   # A previous image that is still open elsewhere (a VM, an antivirus scan)
