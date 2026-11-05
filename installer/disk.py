@@ -563,9 +563,13 @@ def _create_partitions(ctx: Context, plan: DiskPlan) -> None:
         ctx.run(["partprobe", member.disk], check=False)
     ctx.run(["udevadm", "settle"], check=False)
 
+    # Every partition of the plan gets its filesystem here except the two the
+    # layout formats later: the root (the array, container or volume may not
+    # exist yet) and the BIOS boot partition (raw, no filesystem at all).  The
+    # ESP, swap and a separate /home are formatted only in this loop.
     for member in plan.members:
         for partition in member.partitions:
-            if partition.keep or partition.role != "bios":
+            if partition.keep or partition.role == "bios" or not partition.fs:
                 continue
             _mkfs(ctx, partition.fs, partition.device, partition.label)
 

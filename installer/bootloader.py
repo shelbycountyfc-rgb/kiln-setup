@@ -238,11 +238,56 @@ def install_systemd_boot(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> 
     _verify_kernel(ctx, cfg)
 
 
-def install_grub(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
-    header = GRUB_HEADER.replace(
-        "{os_prober}", "false" if cfg.alongside else "true"
+def grub_defaults(cfg: InstallConfig, layout: DiskPlan | None = None) -> str:
+    """The ``/etc/default/grub`` this layout needs.
+
+    On legacy BIOS there is no EFI system partition, so ``/boot`` lives inside
+    whatever the storage stack built on the disk: GRUB itself has to assemble
+    the array, unlock the container and enter the volume group before it can
+    find a kernel.  That needs the modules for each layer, and cryptodisk for an
+    encrypted root -- which also means the passphrase is typed twice at boot,
+    once by GRUB and once by the initramfs.  On UEFI the kernel and the initramfs
+    are on the unencrypted ESP, so none of this applies.
+    """
+    header = GRUB_HEADER.replace("{os_prober}", "false" if cfg.alongside else "true")
+    if cfg.efi:
+        return header
+    modules = ["part_gpt", "part_msdos"]
+    if cfg.uses_raid:
+        modules += ["mdraid09", "mdraid1x"]
+    if cfg.uses_lvm:
+        modules.append("lvm")
+    if cfg.encrypted:
+        modules += ["cryptodisk", "luks"]
+    header = header.replace(
+        'GRUB_PRELOAD_MODULES="part_gpt part_msdos"',
+        'GRUB_PRELOAD_MODULES="%s"' % " ".join(modules),
     )
-    ctx.write_target("etc/default/grub", header)
+    if cfg.encrypted:
+        header = header.replace(
+            "GRUB_TERMINAL_INPUT=console",
+            "GRUB_ENABLE_CRYPTODISK=y\nGRUB_TERMINAL_INPUT=console",
+        )
+    if layout is not None:
+        # The initramfs finds an encrypted root only if the command line names
+        # the container; grub-mkconfig writes root= itself, the rest is ours.
+        # Only the container is added: grub-mkconfig already writes root= and
+        # the Btrfs rootflags for the file system it found.
+        extra = []
+        if layout.encryption == "luks":
+            extra.append(
+                "cryptdevice=UUID=%s:%s" % (layout.luks_uuid, layout.crypt_name)
+            )
+        if extra:
+            header = header.replace(
+                'GRUB_CMDLINE_LINUX_DEFAULT="loglevel=4"',
+                'GRUB_CMDLINE_LINUX_DEFAULT="loglevel=4 %s"' % " ".join(extra),
+            )
+    return header
+
+
+def install_grub(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
+    ctx.write_target("etc/default/grub", grub_defaults(cfg, layout))
     if cfg.efi:
         boot = ctx.target_path("boot")
         if not ctx.dry_run and not os.path.ismount(boot):
@@ -277,9 +322,15 @@ def install_grub(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
     config = ctx.read_target("boot/grub/grub.cfg")
     if not config:
         raise RuntimeError("grub-mkconfig wrote no /boot/grub/grub.cfg")
-    if "root=UUID=" not in config:
+    # An LVM or array root is named by its device path on purpose: it does not
+    # exist until the initramfs has opened the container.
+    if not any(
+        marker in config
+        for marker in ("root=UUID=", "root=/dev/mapper/", "root=/dev/md")
+    ):
         ctx.log.log(
-            "grub.cfg does not boot by UUID; check /boot/grub/grub.cfg before rebooting",
+            "grub.cfg does not name the root file system; check /boot/grub/grub.cfg "
+            "before rebooting",
             "warn",
         )
 
