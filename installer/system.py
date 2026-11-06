@@ -15,6 +15,10 @@ from .disk import DiskPlan
 
 LOG_PATH = "/var/log/kiln-setup.log"
 
+#: Where a key file for the container lives in the new system.
+KEYFILE_PATH = "/etc/cryptsetup-keys.d/cryptroot.key"
+KEYFILE_BYTES = 4096
+
 #: Where the live medium keeps both packages (installer and control panel).
 MEDIUM_ROOT = "/opt/kiln-setup"
 
@@ -151,16 +155,28 @@ def configure_crypto(ctx: Context, cfg: InstallConfig, layout: DiskPlan | None =
     volume group is scanned.  Getting this wrong produces a boot that stops in
     the emergency shell with no explanation.
     """
-    hooks = [
-        "base", "udev", "autodetect", "microcode", "modconf", "kms",
-        "keyboard", "keymap", "consolefont", "block",
-    ]
+    tpm = cfg.unlock == "tpm2"
+    if tpm:
+        # A TPM unlock is systemd's: sd-encrypt asks systemd-cryptsetup, which is
+        # not in the image unless the systemd hook is.
+        hooks = [
+            "base", "systemd", "autodetect", "microcode", "modconf", "kms",
+            "keyboard", "sd-vconsole", "block",
+        ]
+    else:
+        hooks = [
+            "base", "udev", "autodetect", "microcode", "modconf", "kms",
+            "keyboard", "keymap", "consolefont", "block",
+        ]
     if cfg.uses_raid:
         hooks.append("mdadm_udev")
     if cfg.encrypted:
-        hooks.append("encrypt")
+        hooks.append("sd-encrypt" if tpm else "encrypt")
     if cfg.uses_lvm:
         hooks.append("lvm2")
+    if cfg.hibernate:
+        # resume runs after every layer the swap can sit on has been assembled.
+        hooks.append("resume")
     hooks += ["filesystems", "fsck"]
 
     text = ctx.read_target("etc/mkinitcpio.conf")
@@ -174,15 +190,92 @@ def configure_crypto(ctx: Context, cfg: InstallConfig, layout: DiskPlan | None =
             updated = re.sub(
                 r"^MODULES=\(.*\)\s*$", "MODULES=(btrfs)", updated, flags=re.M
             )
+        if cfg.unlock == "keyfile":
+            # The key file has to be inside the image: that is what replaces the
+            # passphrase prompt at boot.
+            if re.search(r"^FILES=\(.*\)\s*$", updated, flags=re.M):
+                updated = re.sub(
+                    r"^FILES=\(.*\)\s*$",
+                    "FILES=(%s)" % KEYFILE_PATH,
+                    updated,
+                    flags=re.M,
+                )
+            else:
+                updated = updated.replace(
+                    "HOOKS=(", "FILES=(%s)\nHOOKS=(" % KEYFILE_PATH, 1
+                )
         if updated != text:
             ctx.write_target("etc/mkinitcpio.conf", updated)
 
     if cfg.encrypted and layout is not None and getattr(layout, "luks_uuid", ""):
-        ctx.write_target(
-            "etc/crypttab",
-            "# Written by Kiln Setup. The passphrase is asked for at every boot.\n"
-            "%s UUID=%s none luks\n" % (layout.crypt_name, layout.luks_uuid),
-            mode=0o600,
+        if cfg.unlock == "tpm2":
+            note = (
+                "# Written by Kiln Setup. The TPM releases the key; the passphrase "
+                "still works.\n"
+            )
+            line = "%s UUID=%s none luks,tpm2-device=auto\n" % (
+                layout.crypt_name,
+                layout.luks_uuid,
+            )
+        elif cfg.unlock == "keyfile":
+            note = "# Written by Kiln Setup. A key file in the initramfs opens it.\n"
+            line = "%s UUID=%s %s luks\n" % (
+                layout.crypt_name,
+                layout.luks_uuid,
+                KEYFILE_PATH,
+            )
+        else:
+            note = "# Written by Kiln Setup. The passphrase is asked for at every boot.\n"
+            line = "%s UUID=%s none luks\n" % (layout.crypt_name, layout.luks_uuid)
+        ctx.write_target("etc/crypttab", note + line, mode=0o600)
+
+
+def install_keyfile(ctx: Context, cfg: InstallConfig, layout: DiskPlan | None) -> None:
+    """Add a random key file to the container and keep it in the initramfs."""
+    if cfg.unlock != "keyfile" or not cfg.encrypted or layout is None:
+        return
+    device = getattr(layout, "luks_device", "")
+    if not device:
+        raise RuntimeError("the container to add a key file to is not known")
+    path = ctx.target_path(KEYFILE_PATH.lstrip("/"))
+    ctx.log.log("adding a key file for %s" % device, "step")
+    if not ctx.dry_run:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as handle:
+            handle.write(os.urandom(KEYFILE_BYTES))
+        os.chmod(path, 0o400)
+    ctx.run(
+        ["cryptsetup", "luksAddKey", "--key-file", "-", device, path],
+        input_text=cfg.luks_passphrase,
+    )
+
+
+def enroll_tpm(ctx: Context, cfg: InstallConfig, layout: DiskPlan | None) -> None:
+    """Enrol the container with the TPM so the firmware can release the key."""
+    if cfg.unlock != "tpm2" or not cfg.encrypted or layout is None:
+        return
+    device = getattr(layout, "luks_device", "")
+    if not device:
+        raise RuntimeError("the container to enrol with the TPM is not known")
+    if not ctx.dry_run and not os.path.exists("/dev/tpmrm0"):
+        ctx.log.log(
+            "this machine has no TPM 2.0 device, so the passphrase is still asked for "
+            "at boot; enrol later with 'systemd-cryptenroll --tpm2-device=auto %s'"
+            % device,
+            "warn",
+        )
+        return
+    ctx.log.log("enrolling %s with the TPM" % device, "step")
+    result = ctx.chroot(
+        "systemd-cryptenroll --tpm2-device=auto --tpm2-pcrs=7 %s" % device,
+        check=False,
+    )
+    if getattr(result, "returncode", 1) != 0:
+        ctx.log.log(
+            "the TPM would not take the key (firmware not in setup mode, or no TPM "
+            "2.0). The passphrase still unlocks the disk; enrol later with "
+            "'systemd-cryptenroll --tpm2-device=auto %s'." % device,
+            "warn",
         )
 
 
@@ -279,6 +372,16 @@ def summary(cfg: InstallConfig, hw: HardwareProfile) -> list:
             cfg.resolved_bootloader + (", signed for Secure Boot" if cfg.secure_boot else ""),
         ),
         ("Multilib", "enabled (32-bit software)" if cfg.multilib else "disabled"),
+        (
+            "Unlock",
+            options.UNLOCK.get(cfg.unlock, (cfg.unlock, ""))[0]
+            if cfg.encrypted
+            else "not encrypted",
+        ),
+        (
+            "Hibernation",
+            "memory is written to swap" if cfg.hibernate else "not set up",
+        ),
         (
             "AUR",
             "%d package(s)" % len(cfg.aur_packages) if cfg.aur_packages else "not used",

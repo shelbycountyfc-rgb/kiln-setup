@@ -161,6 +161,37 @@ SECURE_BOOT = {
     "sbctl": ("Sign with sbctl", "Own keys and signatures for the kernel and the boot loader."),
 }
 
+#: How the container is unlocked while the machine boots.
+UNLOCK = {
+    "passphrase": (
+        "Passphrase",
+        "Typed at every boot. Nothing else is needed.",
+    ),
+    "keyfile": (
+        "Key file",
+        "A random key is added to the container and kept inside the initramfs, so the "
+        "passphrase is only needed for recovery.",
+    ),
+    "tpm2": (
+        "TPM 2.0",
+        "The firmware measures the boot chain and releases the key through "
+        "systemd-cryptenroll; the passphrase still works as a fallback.",
+    ),
+}
+
+#: Countries the mirror chooser offers, in reflector's own spelling.
+MIRROR_COUNTRIES = (
+    "Worldwide", "Australia", "Austria", "Belgium", "Brazil", "Bulgaria",
+    "Canada", "Chile", "China", "Croatia", "Czechia", "Denmark", "Estonia",
+    "Finland", "France", "Germany", "Greece", "Hong Kong", "Hungary", "Iceland",
+    "India", "Indonesia", "Ireland", "Israel", "Italy", "Japan", "Kazakhstan",
+    "Kenya", "Latvia", "Lithuania", "Luxembourg", "Mexico", "Netherlands",
+    "New Zealand", "Norway", "Poland", "Portugal", "Romania", "Russia",
+    "Singapore", "Slovakia", "Slovenia", "South Africa", "South Korea", "Spain",
+    "Sweden", "Switzerland", "Taiwan", "Thailand", "Turkey", "Ukraine",
+    "United Kingdom", "United States", "Vietnam",
+)
+
 #: Architectures the installer can put on the disk.
 ARCHES = {
     "x86_64": ("x86_64 (64-bit PC)", "The usual desktop and laptop architecture."),

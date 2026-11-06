@@ -148,6 +148,11 @@ class Session:
                     "%s is missing from the live medium; the chosen storage layout needs it"
                     % tool
                 )
+        if self.cfg.shrink_partition and not ctx.dry_run and not _has("parted"):
+            raise RuntimeError(
+                "parted is missing from the live medium; shrinking %s needs it"
+                % self.cfg.shrink_partition
+            )
         if self.cfg.multilib:
             self._substep("Enabling the 32-bit multilib repository")
             packages.enable_live_multilib(ctx)
@@ -199,6 +204,10 @@ class Session:
             raid_members=raid_members,
             keep_esp=self.cfg.keep_esp,
             alongside_number=alongside_number,
+            encrypt_boot=self.cfg.encrypt_boot,
+            hibernate=self.cfg.hibernate,
+            shrink_partition=self.cfg.shrink_partition,
+            shrink_gb=self.cfg.shrink_gb,
         )
         self.logger.log("layout: %s" % self.layout.to_dict(), "plan")
         self.logger.log("storage stack: %s" % " -> ".join(self.layout.stack()), "plan")
@@ -229,7 +238,15 @@ class Session:
     def _disk(self) -> None:
         assert self.layout is not None
         if self.cfg.alongside:
-            self._substep("Adding one partition in the free space of %s" % self.cfg.disk)
+            if self.cfg.shrink_partition:
+                self._substep(
+                    "Shrinking %s to %d GiB, then using the space it freed"
+                    % (self.cfg.shrink_partition, self.cfg.shrink_gb)
+                )
+            else:
+                self._substep(
+                    "Adding one partition in the free space of %s" % self.cfg.disk
+                )
         else:
             self._substep("Erasing %s and creating partitions" % self.cfg.disk)
             disk.wipe_signatures(self.ctx, self.layout)
@@ -270,6 +287,11 @@ class Session:
             % ("an encrypted root" if self.cfg.encrypted else "this layout")
         )
         system.configure_crypto(self.ctx, self.cfg, self.layout)
+        # The key file and the TPM enrolment happen while the container is open:
+        # both add a key slot to the container that /mnt is mounted from.
+        self._substep("Adding the second way into the container")
+        system.install_keyfile(self.ctx, self.cfg, self.layout)
+        system.enroll_tpm(self.ctx, self.cfg, self.layout)
 
     def _users(self) -> None:
         system.accounts(self.ctx, self.cfg)

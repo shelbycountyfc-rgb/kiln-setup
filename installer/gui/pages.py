@@ -335,7 +335,52 @@ class NetworkPage(Page):
 
         self.saved_ssid = tk.StringVar(value=form_data.get("wifiSsid", ""))
 
+        mirrors = Card(
+            body, theme, "Download mirrors",
+            "The medium ships three mirrors. Testing the list for this connection is "
+            "worth a minute: everything the installation downloads comes from it.",
+        )
+        mirrors.pack(fill="x", pady=(16, 0))
+        form = Form(mirrors.body, theme)
+        form.pack(fill="x")
+        holder = form.field(
+            "Country", "Reflector keeps the fastest mirrors of this country."
+        )
+        self.mirror_country = tk.StringVar(
+            value=form_data.get("mirrorCountry", "Worldwide")
+        )
+        ttk.Combobox(
+            holder, textvariable=self.mirror_country,
+            values=list(options.MIRROR_COUNTRIES), state="readonly", width=24,
+        ).pack(side="left")
+        ttk.Button(
+            holder, text="Test and save", style="Secondary.TButton",
+            command=self.refresh_mirrors,
+        ).pack(side="left", padx=(8, 0))
+        self.mirror_label = tk.Label(
+            mirrors.body, text="", bg=theme.panel, fg=theme.muted, font=theme.small,
+            anchor="w", justify="left", wraplength=640,
+        )
+        self.mirror_label.pack(fill="x", pady=(6, 0))
+
     # -- actions -----------------------------------------------------------
+    def refresh_mirrors(self) -> None:
+        from .. import mirrors
+
+        country = self.mirror_country.get()
+        if country == "Worldwide":
+            country = ""
+        self.mirror_label.configure(
+            text="Testing mirrors for %s\u2026" % (country or "the whole world")
+        )
+        self.update_idletasks()
+        try:
+            _count, message = mirrors.refresh(self.app.ctx, country)
+        except Exception as error:  # reflector can fail in several harmless ways
+            self.mirror_label.configure(text="The mirror list was not changed: %s" % error)
+            return
+        self.mirror_label.configure(text=message)
+
     def _say(self, text: str) -> None:
         self.connect_label.configure(text=text)
 
@@ -412,6 +457,7 @@ class NetworkPage(Page):
         chosen = self.saved_ssid.get().strip()
         form["wifiSsid"] = chosen
         form["wifiPassword"] = self.wifi_password.get() if chosen else ""
+        form["mirrorCountry"] = self.mirror_country.get()
 
     def errors(self) -> list:
         if self.net.ctx.dry_run or self.net.online():
@@ -758,6 +804,81 @@ class StoragePage(Page):
             state="readonly", width=26,
         ).pack(side="left")
 
+        deep = Card(
+            body, theme, "Unlocking the disk",
+            "How the container is opened at boot, and whether the kernel itself is "
+            "encrypted with it.",
+        )
+        deep.pack(fill="x", pady=(16, 16))
+        form = Form(deep.body, theme)
+        form.pack(fill="x")
+        holder = form.field(
+            "Encrypt /boot",
+            "Keeps the kernel and the initramfs inside the container. GRUB then has to "
+            "ask for the passphrase before it can load a kernel; UEFI and GRUB only.",
+        )
+        self.encrypt_boot = tk.BooleanVar(value=bool(form_data.get("encryptBoot")))
+        ttk.Checkbutton(
+            holder, text="Encrypt the kernel and the initramfs as well",
+            variable=self.encrypt_boot, style="Panel.TCheckbutton",
+        ).pack(anchor="w")
+
+        holder = form.field(
+            "Unlock",
+            "A key file or the TPM removes the passphrase prompt; the passphrase keeps "
+            "working for recovery.",
+        )
+        unlock_labels = {key: value[0] for key, value in options.UNLOCK.items()}
+        self._unlock_labels = unlock_labels
+        self.unlock_label = tk.StringVar(
+            value=unlock_labels.get(
+                form_data.get("unlock", "passphrase"), unlock_labels["passphrase"]
+            )
+        )
+        ttk.Combobox(
+            holder, textvariable=self.unlock_label, values=list(unlock_labels.values()),
+            state="readonly", width=20,
+        ).pack(side="left")
+
+        room = Card(
+            body, theme, "Room for the new system",
+            "An existing partition can be made smaller first, so the installer has "
+            "somewhere to go without deleting the system that is already there.",
+        )
+        room.pack(fill="x")
+        form = Form(room.body, theme)
+        form.pack(fill="x")
+        holder = form.field(
+            "Shrink",
+            "Only ext2/3/4, Btrfs and NTFS can be shrunk. The filesystem is checked and "
+            "shrunk before the partition table is touched.",
+        )
+        self._shrink_labels = {"Leave the other systems alone": ""}
+        choices = ["Leave the other systems alone"]
+        for partition in disk_module.shrink_candidates(hw, form_data.get("disk", "")):
+            label = "%s  %s  %.0f GiB" % (
+                partition.device,
+                partition.fstype or "?",
+                partition.size / float(1024 ** 3),
+            )
+            self._shrink_labels[label] = partition.device
+            choices.append(label)
+        current = form_data.get("shrinkPartition") or ""
+        chosen = next(
+            (label for label, device in self._shrink_labels.items() if device == current),
+            choices[0],
+        )
+        self.shrink_label = tk.StringVar(value=chosen)
+        ttk.Combobox(
+            holder, textvariable=self.shrink_label, values=choices, state="readonly",
+            width=34,
+        ).pack(side="left")
+        holder = form.field("New size", "What that partition should end up as, in GiB.")
+        self.shrink_gb = tk.StringVar(value="%.0f" % (form_data.get("shrinkGb") or 40))
+        ttk.Spinbox(
+            holder, textvariable=self.shrink_gb, from_=4, to=4096, width=8,
+        ).pack(side="left")
+
     # -- behaviour ---------------------------------------------------------
     def _mode_changed(self) -> None:
         if self.mode_var.get() == "alongside" and not self._esp:
@@ -795,6 +916,17 @@ class StoragePage(Page):
         form["secureBoot"] = bool(self.secure.get())
         form["arch"] = self._reverse(self._arch_labels, self.arch_label.get(), "x86_64")
         form["keepEsp"] = self._esp if form["mode"] == "alongside" else ""
+        form["encryptBoot"] = bool(self.encrypt_boot.get())
+        form["unlock"] = self._reverse(
+            self._unlock_labels, self.unlock_label.get(), "passphrase"
+        )
+        device = self._shrink_labels.get(self.shrink_label.get(), "")
+        form["shrinkPartition"] = device
+        try:
+            # The size only means something once a partition has been chosen.
+            form["shrinkGb"] = float(self.shrink_gb.get() or 0) if device else 0.0
+        except ValueError:
+            form["shrinkGb"] = 0.0
 
     def errors(self) -> list:
         self.collect()
@@ -899,6 +1031,29 @@ class SystemPage(Page):
         combo.pack(side="left")
         self._bootloader_labels = labels
 
+        kernel = Card(
+            body, theme, "Kernel and power",
+            "Extra parameters are written into the boot entry exactly as typed.",
+        )
+        kernel.pack(fill="x")
+        form = Form(kernel.body, theme)
+        form.pack(fill="x")
+        holder = form.field(
+            "Kernel parameters",
+            "Space separated, for example: nowatchdog zswap.enabled=1",
+        )
+        self.kernel_params = tk.StringVar(value=form_data.get("kernelParams", ""))
+        ttk.Entry(holder, textvariable=self.kernel_params, width=46).pack(side="left")
+        holder = form.field(
+            "Hibernation",
+            "Writes the contents of memory to the swap partition and resumes from it.",
+        )
+        self.hibernate = tk.BooleanVar(value=bool(form_data.get("hibernate")))
+        ttk.Checkbutton(
+            holder, text="Set up hibernation into the swap partition",
+            variable=self.hibernate, style="Panel.TCheckbutton",
+        ).pack(anchor="w")
+
         # The Wi-Fi answers live on the Network page: that is where the medium
         # itself is connected, and the profile written into the new system is
         # the one that was actually used.
@@ -914,6 +1069,8 @@ class SystemPage(Page):
         form["keymap"] = self.keymap.get().strip()
         reverse = {label: key for key, label in self._bootloader_labels.items()}
         form["bootloader"] = reverse.get(self.bootloader_label.get(), "auto")
+        form["kernelParams"] = self.kernel_params.get().strip()
+        form["hibernate"] = bool(self.hibernate.get())
         form["rootPassword"] = self.root_password.get()
         name = self.username.get().strip()
         if name:

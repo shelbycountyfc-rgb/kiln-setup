@@ -98,7 +98,17 @@ def kernel_options(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> str:
                 "the LUKS container has no UUID recorded; the boot entry cannot name it",
                 "warn",
             )
-        options.append("cryptdevice=UUID=%s:%s" % (layout.luks_uuid, layout.crypt_name))
+        if cfg.unlock == "tpm2":
+            # sd-encrypt asks systemd-cryptsetup, which asks the TPM first and
+            # falls back to the passphrase when the measurement does not match.
+            options.append(
+                "rd.luks.name=%s=%s" % (layout.luks_uuid, layout.crypt_name)
+            )
+            options.append("rd.luks.options=tpm2-device=auto")
+        else:
+            options.append(
+                "cryptdevice=UUID=%s:%s" % (layout.luks_uuid, layout.crypt_name)
+            )
     if layout.volumes == "lvm":
         options.append("root=/dev/%s/%s" % (layout.vg, layout.lv))
     else:
@@ -108,6 +118,12 @@ def kernel_options(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> str:
     options.append("rootfstype=%s" % cfg.root_fs)
     if layout.subvolumes:
         options.append("rootflags=subvol=@")
+    if cfg.hibernate and layout.swap is not None:
+        # The kernel has to know which swap holds the image it is meant to resume.
+        uuid = layout.swap_uuid or uuid_of(ctx, layout.swap.device)
+        if uuid:
+            options.append("resume=UUID=%s" % uuid)
+    options.extend(cfg.kernel_param_list)
     return " ".join(options)
 
 
@@ -138,7 +154,10 @@ def _fix_grub_paths(ctx: Context, cfg: InstallConfig) -> None:
     text = ctx.read_target("boot/grub/grub.cfg")
     if not text:
         return
-    base = ctx.target_path("boot") if cfg.efi else ctx.target
+    # GRUB reads /boot from the ESP unless it had to unlock the container first.
+    base = (
+        ctx.target_path("boot") if (cfg.efi and not cfg.encrypt_boot) else ctx.target
+    )
     changes = []
     lines = []
     for line in text.splitlines():
@@ -250,20 +269,22 @@ def grub_defaults(cfg: InstallConfig, layout: DiskPlan | None = None) -> str:
     are on the unencrypted ESP, so none of this applies.
     """
     header = GRUB_HEADER.replace("{os_prober}", "false" if cfg.alongside else "true")
-    if cfg.efi:
-        return header
+    # GRUB has to open the container itself when the kernel lives inside it: on
+    # legacy BIOS /boot cannot be anywhere else, and with an encrypted /boot the
+    # menu and the kernel are both on the encrypted file system.
+    cryptodisk = cfg.encrypted and (not cfg.efi or cfg.encrypt_boot)
     modules = ["part_gpt", "part_msdos"]
     if cfg.uses_raid:
         modules += ["mdraid09", "mdraid1x"]
     if cfg.uses_lvm:
         modules.append("lvm")
-    if cfg.encrypted:
+    if cryptodisk:
         modules += ["cryptodisk", "luks"]
     header = header.replace(
         'GRUB_PRELOAD_MODULES="part_gpt part_msdos"',
         'GRUB_PRELOAD_MODULES="%s"' % " ".join(modules),
     )
-    if cfg.encrypted:
+    if cryptodisk:
         header = header.replace(
             "GRUB_TERMINAL_INPUT=console",
             "GRUB_ENABLE_CRYPTODISK=y\nGRUB_TERMINAL_INPUT=console",
@@ -275,9 +296,18 @@ def grub_defaults(cfg: InstallConfig, layout: DiskPlan | None = None) -> str:
         # the Btrfs rootflags for the file system it found.
         extra = []
         if layout.encryption == "luks":
-            extra.append(
-                "cryptdevice=UUID=%s:%s" % (layout.luks_uuid, layout.crypt_name)
-            )
+            if cfg.unlock == "tpm2":
+                extra.append(
+                    "rd.luks.name=%s=%s" % (layout.luks_uuid, layout.crypt_name)
+                )
+                extra.append("rd.luks.options=tpm2-device=auto")
+            else:
+                extra.append(
+                    "cryptdevice=UUID=%s:%s" % (layout.luks_uuid, layout.crypt_name)
+                )
+        if cfg.hibernate and layout.swap_uuid:
+            extra.append("resume=UUID=%s" % layout.swap_uuid)
+        extra.extend(cfg.kernel_param_list)
         if extra:
             header = header.replace(
                 'GRUB_CMDLINE_LINUX_DEFAULT="loglevel=4"',
@@ -289,7 +319,10 @@ def grub_defaults(cfg: InstallConfig, layout: DiskPlan | None = None) -> str:
 def install_grub(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
     ctx.write_target("etc/default/grub", grub_defaults(cfg, layout))
     if cfg.efi:
-        boot = ctx.target_path("boot")
+        # With an encrypted /boot the ESP is mounted at /boot/efi instead, so the
+        # kernel, the initramfs and grub.cfg all sit inside the container.
+        directory = "/boot/efi" if cfg.encrypt_boot else "/boot"
+        boot = ctx.target_path(directory)
         if not ctx.dry_run and not os.path.ismount(boot):
             raise RuntimeError(
                 "the EFI system partition is not mounted at %s, so grub-install would "
@@ -303,9 +336,15 @@ def install_grub(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
             "mount -t efivarfs efivarfs /sys/firmware/efi/efivars",
             check=False,
         )
+        # An encrypted /boot needs the modules GRUB uses to open the container
+        # and the volume group before it can read its own configuration.
+        modules = ""
+        if cfg.encrypt_boot:
+            modules = ' --modules="normal cryptodisk luks lvm part_gpt part_msdos"'
         ctx.chroot(
-            "grub-install --target=%s --efi-directory=/boot "
-            "--bootloader-id=Kiln --recheck" % efi_target(cfg)
+            "grub-install --target=%s --efi-directory=%s "
+            "--bootloader-id=Kiln --recheck%s"
+            % (efi_target(cfg), directory, modules)
         )
         ctx.chroot(EFI_BOOT_ORDER, check=False)
         ctx.chroot("umount /sys/firmware/efi/efivars 2>/dev/null || true", check=False)

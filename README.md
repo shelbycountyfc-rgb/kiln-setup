@@ -211,8 +211,9 @@ a multi-gigabyte binary does not belong in git history.
   desktop), 2 GiB of RAM to boot the live medium, wired or wireless internet.
 - Secure Boot must be **off** to boot the medium (Arch install media do not
   support it; keys can be enrolled after installation).
-- Installation erases the selected disk completely. There is no dual-boot or
-  shrink-an-existing-partition mode in this version.
+- Installation erases the selected disk by default. The alongside mode keeps a
+  system that is already installed, and can shrink one of its partitions first
+  to make room.
 
 ## Storage, encryption and dual boot
 
@@ -223,10 +224,16 @@ Disk page before anything is written:
 disk(s) -> mdadm array -> LUKS2 container -> LVM volume group -> ext4/xfs/btrfs -> subvolumes
 ```
 
-- **Encryption** — LUKS2 with argon2id on the root partition. The passphrase is
-  asked once while installing and at every boot; `/boot` stays on the EFI system
-  partition, which the boot loader has to read before anything is unlocked.
-  `/etc/crypttab` and the `encrypt` initramfs hook are written for you.
+- **Encryption** — LUKS2 with argon2id on the root partition. `/etc/crypttab`
+  and the `encrypt` initramfs hook are written for you. By default `/boot` stays
+  on the EFI system partition, which the boot loader reads before anything is
+  unlocked; **Encrypt /boot** puts the kernel and the initramfs inside the
+  container instead, so GRUB has to open it first (`GRUB_ENABLE_CRYPTODISK=y`,
+  cryptodisk modules, and the passphrase typed twice at boot).
+- **Unlocking** — a passphrase, a **key file** (a random key added to the
+  container and carried inside the initramfs, so boot stops asking), or the
+  **TPM 2.0** (`systemd-cryptenroll`, PCR 7, with `sd-encrypt` in the initramfs).
+  The passphrase is always kept as the way back in.
 - **LVM** — `pvcreate`/`vgcreate`/`lvcreate` over the root partition (or over the
   LUKS container). The boot entry names `/dev/vg0/root`.
 - **RAID** — mdadm RAID 1, 5 or 10 across the whole root partitions of 2, 3+ or 4+
@@ -238,6 +245,16 @@ disk(s) -> mdadm array -> LUKS2 container -> LVM volume group -> ext4/xfs/btrfs 
   existing EFI system partition is found and mounted **without formatting**, one
   partition is created in the free space, and `os-prober` is enabled so GRUB
   writes the other system's menu entry.
+- **Making room** — when there is no free space, one existing partition can be
+  shrunk first: the filesystem is resized (ext2/3/4, Btrfs, NTFS), then `parted`
+  moves the end of the partition, which keeps its number and PARTUUID. XFS, FAT,
+  swap and anything already mounted are refused rather than guessed at.
+- **Kernel parameters and hibernation** — extra parameters are written into the
+  boot entry verbatim; hibernation sizes the swap partition to hold memory and
+  adds `resume=UUID=` plus the `resume` hook.
+- **Mirrors** — the Network step can run `reflector` for a country and write the
+  fastest mirrors into `/etc/pacman.d/mirrorlist`, keeping the shipped list when
+  nothing answers.
 
 ## Secure Boot, the AUR and other architectures
 
@@ -256,13 +273,14 @@ disk(s) -> mdadm array -> LUKS2 container -> LVM volume group -> ext4/xfs/btrfs 
 
 ## What is not implemented
 
-- Shrinking an existing partition to make room: alongside uses free space only.
-- LUKS on `/boot` or the ESP (no GRUB cryptodisk), and no keyfile or TPM unlock.
 - Reviewing or signing AUR recipes, or third-party repositories.
-- Custom kernel command-line options and hibernation setup.
-- Mirror selection UI: the live medium's mirrorlist is used (reflector is
-  installed, so `reflector --latest 20 --sort rate --save /etc/pacman.d/mirrorlist`
-  can be run before starting the installer).
+- Shrinking a filesystem with no shrinking tool: XFS, FAT and swap partitions are
+  refused instead of being reformatted.
+- Resuming from a swap file: hibernation writes to a swap partition.
+- A TPM unlock for an encrypted `/boot`: GRUB cannot ask the TPM for the key, so
+  the two choices are refused together.
+- Enrolling Secure Boot keys from the medium: that needs the firmware in setup
+  mode, which no installer can force.
 
 ## Safety
 
@@ -292,9 +310,13 @@ X display):
   exist on Windows).
 - `bash -n` on every shell script in `iso/`.
 
-**Not** executed here, and therefore unproven: the Tk window on a real display,
-partman on real disks, `pacstrap`, the boot loader install, and the mkarchiso
-build. Test in a VM before using a real machine:
+The 1.2.0 image was then installed for real in VirtualBox — LUKS2, LVM, Btrfs
+subvolumes and KDE on legacy BIOS, from partition table to a logged-in Plasma
+desktop — which is how the BIOS formatting and GRUB cryptodisk defects in 1.2.0
+were found and fixed. Not executed anywhere yet: the Tk window on a physical
+display, partition shrinking on a real disk, the key-file and TPM unlock paths,
+hibernation resume, and the mirror chooser against live mirrors. Test in a VM
+before using a real machine:
 
 ```bash
 qemu-system-x86_64 -enable-kvm -m 4096 -bios /usr/share/edk2/x64/OVMF.4m.fd \

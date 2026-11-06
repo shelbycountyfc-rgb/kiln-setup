@@ -27,6 +27,8 @@ PACKAGE_RE = re.compile(r"^[a-z0-9][a-z0-9@._+-]{0,79}$")
 #: AUR package names follow the same rules as repository package names.
 AUR_RE = PACKAGE_RE
 GROUP_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+#: One kernel parameter: the characters the kernel command line accepts.
+KERNEL_PARAM_RE = re.compile(r"^[A-Za-z0-9_.:+@%,/=~-]{1,128}$")
 
 
 @dataclass
@@ -59,6 +61,12 @@ class InstallConfig:
     raid: str = "none"
     raid_disks: list = field(default_factory=list)
     keep_esp: str = ""
+    #: An existing partition to shrink first, so there is room to install in.
+    shrink_partition: str = ""
+    shrink_gb: float = 0.0
+    #: Keep the kernel and the initramfs inside the container, on "/boot".
+    encrypt_boot: bool = False
+    unlock: str = "passphrase"
     # -- firmware and software ---------------------------------------------
     secure_boot: bool = False
     aur: bool = False
@@ -75,6 +83,9 @@ class InstallConfig:
     firmware: str = "auto"
     multilib: bool = True
     packages: list = field(default_factory=list)
+    #: Extra kernel parameters, exactly as they should appear on the command line.
+    kernel_params: str = ""
+    hibernate: bool = False
     root_password: str = ""
     user: UserAccount | None = None
     wifi_ssid: str = ""
@@ -112,6 +123,15 @@ class InstallConfig:
             raid_disks = [d for d in re.split(r"[\s,]+", raid_disks) if d]
         config.raid_disks = [str(d).strip() for d in raid_disks if str(d).strip()]
         config.keep_esp = str(data.get("keepEsp", "")).strip()
+        config.shrink_partition = str(data.get("shrinkPartition", "")).strip()
+        try:
+            config.shrink_gb = float(data.get("shrinkGb") or 0)
+        except (TypeError, ValueError):
+            config.shrink_gb = 0.0
+        config.encrypt_boot = bool(data.get("encryptBoot", False))
+        config.unlock = (
+            str(data.get("unlock", "passphrase")).strip().lower() or "passphrase"
+        )
         config.secure_boot = bool(data.get("secureBoot", False))
         config.aur = bool(data.get("aur", False))
         aur_packages = data.get("aurPackages") or []
@@ -132,6 +152,8 @@ class InstallConfig:
         config.microcode = str(data.get("microcode", "auto")).strip().lower() or "auto"
         config.firmware = str(data.get("firmware", "auto")).strip().lower() or "auto"
         config.multilib = bool(data.get("multilib", True))
+        config.kernel_params = str(data.get("kernelParams", "")).strip()
+        config.hibernate = bool(data.get("hibernate", False))
         packages = data.get("packages") or []
         if isinstance(packages, str):
             packages = [p for p in re.split(r"[\s,]+\s*".rstrip(), packages) if p]
@@ -177,6 +199,15 @@ class InstallConfig:
     @property
     def alongside(self) -> bool:
         return self.mode == "alongside"
+
+    @property
+    def encrypted_boot(self) -> bool:
+        """The kernel and the initramfs live inside the LUKS container."""
+        return self.encrypted and self.encrypt_boot
+
+    @property
+    def kernel_param_list(self) -> list:
+        return [token for token in self.kernel_params.split() if token]
 
     @property
     def kernel_package(self) -> str:
@@ -256,6 +287,45 @@ class InstallConfig:
         if self.root_fs == "btrfs" and self.separate_home:
             errors.append("Btrfs uses a /home subvolume; a separate /home partition is redundant.")
 
+        # -- making room, unlocking, booting ---------------------------------
+        if self.shrink_partition:
+            if not self.alongside:
+                errors.append(
+                    "Shrinking a partition is only used when installing alongside "
+                    "another system."
+                )
+            elif not DISK_RE.match(self.shrink_partition):
+                errors.append("Invalid partition to shrink %r." % self.shrink_partition)
+            elif not 1 <= self.shrink_gb <= 4096:
+                errors.append(
+                    "A shrunk partition has to end up between 1 and 4096 GiB."
+                )
+        elif self.shrink_gb:
+            errors.append(
+                "Choose the partition to shrink as well as the size it should end up."
+            )
+        if self.encrypt_boot:
+            if not self.encrypted:
+                errors.append("Encrypting /boot needs an encrypted root as well.")
+            if self.resolved_bootloader != "grub":
+                errors.append(
+                    "Only GRUB can boot a kernel that lives inside the container."
+                )
+            if self.alongside:
+                errors.append(
+                    "An installation alongside another system keeps /boot on the EFI "
+                    "partition it reuses."
+                )
+        if self.unlock not in options.UNLOCK:
+            errors.append("Unknown unlock method %r." % self.unlock)
+        elif self.unlock != "passphrase" and not self.encrypted:
+            errors.append("A key file or TPM unlock needs an encrypted root.")
+        elif self.unlock == "tpm2" and self.encrypt_boot:
+            errors.append(
+                "GRUB cannot ask the TPM for the key, so /boot has to stay on the EFI "
+                "partition for a TPM unlock."
+            )
+
         # -- firmware and architecture --------------------------------------
         if self.secure_boot and not self.efi:
             errors.append("Secure Boot signing needs UEFI firmware.")
@@ -330,6 +400,22 @@ class InstallConfig:
             for group in self.user.groups:
                 if not GROUP_RE.match(group):
                     errors.append("Invalid group name %r." % group)
+        if self.hibernate:
+            if not self.swap:
+                errors.append("Hibernation needs a swap partition to write memory into.")
+            if self.alongside:
+                errors.append(
+                    "There is no swap partition of our own in the free space of the "
+                    "disk to hibernate into."
+                )
+        if len(self.kernel_params) > 400:
+            errors.append("The kernel command line is limited to 400 characters.")
+        for token in self.kernel_param_list:
+            if not KERNEL_PARAM_RE.match(token):
+                errors.append(
+                    "Kernel parameter %r contains characters that do not belong there."
+                    % token
+                )
         if self.wifi_ssid:
             if len(self.wifi_ssid) > 32:
                 errors.append("A Wi-Fi network name cannot be longer than 32 characters.")
@@ -359,6 +445,12 @@ class InstallConfig:
             "raid": self.raid,
             "raidDisks": list(self.raid_disks),
             "keepEsp": self.keep_esp,
+            "shrinkPartition": self.shrink_partition,
+            "shrinkGb": self.shrink_gb,
+            "encryptBoot": self.encrypt_boot,
+            "unlock": self.unlock,
+            "kernelParams": self.kernel_params,
+            "hibernate": self.hibernate,
             "secureBoot": self.secure_boot,
             "aur": self.aur,
             "aurPackages": list(self.aur_packages),

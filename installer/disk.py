@@ -15,6 +15,7 @@ executes it, and a dry run walks the same code path without touching a device.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 
 from .context import Context, human_bytes, part_path
@@ -48,6 +49,15 @@ TYPE_BIOS = "ef02"  # BIOS boot partition (GRUB on GPT)
 
 #: RAID level -> smallest number of member disks that can hold it.
 RAID_MINIMUM = {"1": 2, "5": 3, "10": 4}
+
+#: Filesystems an existing partition can be shrunk from, and the tool family.
+SHRINKABLE = {
+    "ext2": "ext",
+    "ext3": "ext",
+    "ext4": "ext",
+    "btrfs": "btrfs",
+    "ntfs": "ntfs",
+}
 
 
 def recommended_swap(ram_bytes: int) -> int:
@@ -126,6 +136,11 @@ class DiskPlan:
     members: list = field(default_factory=list)
     partitions: list = field(default_factory=list)
     keep_esp: str = ""
+    #: The kernel and the initramfs stay inside the container, on the root.
+    encrypt_boot: bool = False
+    shrink_partition: str = ""
+    shrink_bytes: int = 0
+    swap_uuid: str = ""
     luks_device: str = ""
     luks_uuid: str = ""
     crypt_name: str = "cryptroot"
@@ -253,6 +268,8 @@ def _plan_member(
     primary: bool,
     encryption: str,
     smallest: int,
+    encrypt_boot: bool = False,
+    hibernate: bool = False,
 ) -> MemberPlan:
     """Partitions for one disk.  Every array member gets the same root size."""
     member = MemberPlan(disk=disk, size=size)
@@ -269,7 +286,7 @@ def _plan_member(
                     role="efi",
                     size=esp_bytes,
                     fs="vfat",
-                    mountpoint="/boot",
+                    mountpoint="/boot/efi" if encrypt_boot else "/boot",
                     label="EFI",
                     type_code=TYPE_EFI,
                     disk=disk,
@@ -298,6 +315,9 @@ def _plan_member(
         # Keep 24 GiB for the root filesystem no matter what was asked for.
         room = max(0, smallest - used - 24 * GIB)
         wanted = int(swap_gb * GIB) if swap_gb else recommended_swap(ram_bytes)
+        if hibernate:
+            # The image of memory has to fit, with room for the kernel beside it.
+            wanted = max(wanted, ram_bytes + GIB)
         swap_bytes = max(0, min(wanted, room))
         if swap_bytes >= 1 * GIB:
             member.partitions.append(
@@ -373,6 +393,10 @@ def plan_layout(
     raid_members=(),
     keep_esp: str = "",
     alongside_number: int = 0,
+    encrypt_boot: bool = False,
+    hibernate: bool = False,
+    shrink_partition: str = "",
+    shrink_gb: float = 0.0,
 ) -> DiskPlan:
     """Work out the whole storage plan before a single sector is written."""
     plan = DiskPlan(
@@ -386,6 +410,9 @@ def plan_layout(
         raid=raid if mode == "erase" else "none",
         keep_esp=keep_esp,
         separate_home=separate_home and mode == "erase",
+        encrypt_boot=bool(encrypt_boot) and mode == "erase",
+        shrink_partition=shrink_partition if mode == "alongside" else "",
+        shrink_bytes=int(max(0.0, shrink_gb) * GIB) if mode == "alongside" else 0,
         subvolumes=BTRFS_SUBVOLUMES if (root_fs == "btrfs" and mode == "erase") else (),
     )
 
@@ -445,6 +472,8 @@ def plan_layout(
             primary=index == 0,
             encryption=encryption,
             smallest=smallest,
+            encrypt_boot=encrypt_boot,
+            hibernate=hibernate,
         )
         for index, (device, size) in enumerate(members)
     ]
@@ -501,6 +530,92 @@ def next_partition_number(hardware, disk: str) -> int:
 # --------------------------------------------------------------------------- #
 # Execution
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Shrinking an existing partition
+# --------------------------------------------------------------------------- #
+def shrink_candidates(hardware, disk: str) -> list:
+    """Partitions of this disk whose filesystem can be made smaller."""
+    found = find_disk(hardware, disk)
+    choices = []
+    for partition in getattr(found, "partitions", []) or []:
+        if SHRINKABLE.get((partition.fstype or "").lower()) and partition.size > 8 * GIB:
+            choices.append(partition)
+    return choices
+
+
+def _partition_number(device: str) -> int:
+    match = re.search(r"(\d+)$", device)
+    return int(match.group(1)) if match else 0
+
+
+def _first_sector(ctx: Context, disk: str, number: int) -> int:
+    """Where the partition starts, so a resize can keep the start sector."""
+    text = ctx.captured(["sgdisk", "-i", str(number), disk], quiet=True)
+    match = re.search(r"First sector:\s*(\d+)", text)
+    return int(match.group(1)) if match else 0
+
+
+def _shrink_filesystem(ctx: Context, kind: str, device: str, bytes_wanted: int) -> None:
+    """Make the filesystem smaller before the partition table is changed."""
+    if kind == "ext":
+        ctx.run(["e2fsck", "-f", "-y", device], check=False)
+        ctx.run(["resize2fs", device, "%dK" % max(1, bytes_wanted // 1024)])
+    elif kind == "ntfs":
+        ctx.run(["ntfsresize", "--force", "--size", str(bytes_wanted), device])
+    elif kind == "btrfs":
+        mountpoint = ctx.target_path(".shrink")
+        os.makedirs(mountpoint, exist_ok=True)
+        ctx.mount(device, mountpoint)
+        try:
+            ctx.run(["btrfs", "filesystem", "resize", str(bytes_wanted), mountpoint])
+        finally:
+            ctx.run(["umount", mountpoint], check=False)
+    else:
+        raise RuntimeError("this installer cannot shrink %s" % kind)
+
+
+def shrink_partition(ctx: Context, disk: str, device: str, bytes_wanted: int) -> None:
+    """Shrink a partition that holds another system's filesystem.
+
+    The filesystem goes first: shrinking the partition under a filesystem that
+    still fills it cuts the data off the end.  parted then moves the end of the
+    partition, which keeps its number and its PARTUUID, so the other system's
+    boot loader still finds it where it was.
+    """
+    if bytes_wanted < 4 * GIB:
+        raise RuntimeError("a partition cannot be shrunk below 4 GiB")
+    fstype = ctx.captured(
+        ["blkid", "-s", "TYPE", "-o", "value", device], quiet=True
+    ).strip()
+    kind = SHRINKABLE.get(fstype.lower())
+    if kind is None:
+        raise RuntimeError(
+            "%s holds %s, which cannot be shrunk; pick another partition"
+            % (device, fstype or "an unknown filesystem")
+        )
+    number = _partition_number(device)
+    if not number:
+        raise RuntimeError("cannot tell which partition %s is" % device)
+    ctx.log.log(
+        "shrinking %s to %d GiB to make room" % (device, bytes_wanted // GIB), "step"
+    )
+    # One MiB of slack: the filesystem must never be asked to fill the last block
+    # of the partition it lives in.
+    _shrink_filesystem(ctx, kind, device, bytes_wanted - MIB)
+    start = _first_sector(ctx, disk, number)
+    if start <= 0:
+        if ctx.dry_run:
+            start = 2048
+        else:
+            raise RuntimeError("cannot read the first sector of %s" % device)
+    end = start + bytes_wanted // 512 - 1
+    ctx.run(
+        ["parted", "--script", disk, "unit", "s", "resizepart", str(number), str(end)]
+    )
+    ctx.run(["partprobe", disk], check=False)
+    ctx.run(["udevadm", "settle"], check=False)
+
+
 def _sgdisk_spec(partition: PartitionPlan) -> str:
     """``+1234M`` for a partition of that size."""
     mib = max(1, int(partition.size // MIB))
@@ -650,6 +765,8 @@ def _apply_alongside(ctx: Context, plan: DiskPlan, passphrase: str) -> None:
     """Create one partition in the free space and leave everything else alone."""
     disk = plan.disk
     _unmount_disk(ctx, disk)
+    if plan.shrink_partition and plan.shrink_bytes:
+        shrink_partition(ctx, disk, plan.shrink_partition, plan.shrink_bytes)
     root = plan.root
     if root is None:
         raise RuntimeError("the alongside layout has no root partition")
@@ -704,13 +821,17 @@ def apply_layout(ctx: Context, plan: DiskPlan, passphrase: str = "") -> None:
     _mount_root(ctx, plan, device)
 
     if plan.esp is not None:
-        os.makedirs(ctx.target_path("boot"), exist_ok=True)
-        ctx.mount(plan.esp.device, ctx.target_path("boot"))
+        boot = "boot/efi" if plan.encrypt_boot else "boot"
+        os.makedirs(ctx.target_path(boot), exist_ok=True)
+        ctx.mount(plan.esp.device, ctx.target_path(boot))
     if plan.home is not None:
         os.makedirs(ctx.target_path("home"), exist_ok=True)
         ctx.mount(plan.home.device, ctx.target_path("home"))
     if plan.swap is not None:
         ctx.run(["swapon", plan.swap.device])
+        plan.swap_uuid = ctx.captured(
+            ["blkid", "-s", "UUID", "-o", "value", plan.swap.device], quiet=True
+        ).strip()
 
 
 def shell_target(ctx: Context) -> str:
