@@ -71,6 +71,10 @@ class InstallConfig:
     unlock: str = "passphrase"
     # -- firmware and software ---------------------------------------------
     secure_boot: bool = False
+    #: Lock the kernel down and keep a unit that reports whether it held.
+    hardening: bool = False
+    #: Sign every kernel module with a key this machine keeps.
+    signed_modules: bool = False
     aur: bool = False
     aur_packages: list = field(default_factory=list)
     arch: str = "x86_64"
@@ -136,6 +140,12 @@ class InstallConfig:
             str(data.get("unlock", "passphrase")).strip().lower() or "passphrase"
         )
         config.secure_boot = bool(data.get("secureBoot", False))
+        config.hardening = bool(data.get("hardening", False))
+        config.signed_modules = bool(data.get("signedModules", False))
+        if config.hardening:
+            # A locked-down kernel without Secure Boot is a claim the firmware
+            # does not back up, so the two go together.
+            config.secure_boot = True
         config.aur = bool(data.get("aur", False))
         aur_packages = data.get("aurPackages") or []
         if isinstance(aur_packages, str):
@@ -326,6 +336,10 @@ class InstallConfig:
             errors.append("A key file or TPM unlock needs an encrypted root.")
 
         # -- firmware and architecture --------------------------------------
+        if self.hardening and not self.efi:
+            errors.append("Kernel lockdown with Secure Boot needs UEFI firmware.")
+        if self.secure_boot and self.signed_modules and not self.efi:
+            errors.append("Signing the boot files needs UEFI firmware.")
         if self.secure_boot and not self.efi:
             errors.append("Secure Boot signing needs UEFI firmware.")
         if self.secure_boot and self.alongside:
@@ -454,6 +468,8 @@ class InstallConfig:
             "kernelParams": self.kernel_params,
             "hibernate": self.hibernate,
             "secureBoot": self.secure_boot,
+            "hardening": self.hardening,
+            "signedModules": self.signed_modules,
             "aur": self.aur,
             "aurPackages": list(self.aur_packages),
             "arch": self.arch,

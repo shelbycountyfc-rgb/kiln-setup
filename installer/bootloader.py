@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 
+from . import hardening
 from .config import InstallConfig
 from .context import Context, uuid_of
 from .disk import DiskPlan
@@ -142,6 +143,7 @@ def kernel_options(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> str:
                 "hibernation",
                 "warn",
             )
+    options.extend(hardening.kernel_parameters(cfg))
     options.extend(cfg.kernel_param_list)
     return " ".join(options)
 
@@ -378,6 +380,7 @@ def grub_defaults(cfg: InstallConfig, layout: DiskPlan | None = None) -> str:
                 # A swap file: the file system it lives on, and where it starts.
                 extra.append("resume=UUID=%s" % layout.root_uuid)
                 extra.append("resume_offset=%d" % layout.swap_offset)
+        extra.extend(hardening.kernel_parameters(cfg))
         extra.extend(cfg.kernel_param_list)
         if extra:
             header = header.replace(

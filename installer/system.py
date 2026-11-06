@@ -141,6 +141,8 @@ def enable_services(ctx: Context, cfg: InstallConfig) -> None:
         ctx.chroot("systemctl enable power-profiles-daemon", check=False)
     if "fwupd" in cfg.packages:
         ctx.chroot("systemctl enable fwupd-refresh.timer", check=False)
+    if cfg.hardening:
+        ctx.chroot("systemctl enable kiln-hardening.service", check=False)
 
 
 def enable_fstrim(ctx: Context) -> None:

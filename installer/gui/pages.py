@@ -801,6 +801,19 @@ class StoragePage(Page):
             holder, text="Sign the boot files (sbctl)", variable=self.secure,
             style="Panel.TCheckbutton",
         ).pack(anchor="w")
+        self.hardening = tk.BooleanVar(value=bool(form_data.get("hardening")))
+        ttk.Checkbutton(
+            holder,
+            text="Lock the kernel down (lockdown, no kexec, no unprivileged eBPF)",
+            variable=self.hardening, style="Panel.TCheckbutton",
+        ).pack(anchor="w")
+        self.signed_modules = tk.BooleanVar(
+            value=bool(form_data.get("signedModules"))
+        )
+        ttk.Checkbutton(
+            holder, text="Sign the kernel and every module",
+            variable=self.signed_modules, style="Panel.TCheckbutton",
+        ).pack(anchor="w")
         holder = form.field(
             "Architecture", "The medium has to be built for the architecture it installs."
         )
@@ -926,6 +939,8 @@ class StoragePage(Page):
                 if index < len(self._member_devices)
             ]
         form["secureBoot"] = bool(self.secure.get())
+        form["hardening"] = bool(self.hardening.get())
+        form["signedModules"] = bool(self.signed_modules.get())
         form["arch"] = self._reverse(self._arch_labels, self.arch_label.get(), "x86_64")
         form["keepEsp"] = self._esp if form["mode"] == "alongside" else ""
         form["encryptBoot"] = bool(self.encrypt_boot.get())

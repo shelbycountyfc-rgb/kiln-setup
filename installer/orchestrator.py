@@ -19,6 +19,7 @@ import time
 import traceback
 
 from . import aur, bootloader, disk, network, packages, system
+from . import hardening
 from .config import InstallConfig
 from .context import Context, Logger
 from .hardware import HardwareProfile
@@ -321,6 +322,8 @@ class Session:
         system.accounts(self.ctx, self.cfg)
 
     def _initramfs(self) -> None:
+        # Signing comes first: the initramfs should carry signed modules.
+        hardening.sign_modules(self.ctx, self.cfg)
         self._substep("Running mkinitcpio for the installed kernel(s)")
         system.build_initramfs(self.ctx)
 
@@ -332,6 +335,7 @@ class Session:
         aur.install(self.ctx, self.cfg)
 
     def _services(self) -> None:
+        hardening.apply(self.ctx, self.cfg, self.layout)
         network.write_profiles(self.ctx, self.cfg)
         system.enable_services(self.ctx, self.cfg)
         system.enable_fstrim(self.ctx)

@@ -257,6 +257,23 @@ disk(s) -> mdadm array -> LUKS2 container -> LVM volume group -> ext4/xfs/btrfs 
   fastest mirrors into `/etc/pacman.d/mirrorlist`, keeping the shipped list when
   nothing answers.
 
+## Hardening
+
+- **Lockdown, kexec and eBPF** — the kernel boots with `lockdown=integrity`,
+  kexec is disabled so no second kernel can be started behind the running one,
+  and unprivileged BPF is off with the JIT hardened against being used to build
+  code.
+- **Attestation** — with an encrypted disk the key stays bound to the TPM
+  (PCR 7), and `kiln-hardening.service` reports at every boot whether the
+  lockdown, kexec, BPF, Secure Boot and TPM state still match; a check that no
+  longer holds fails the unit instead of passing silently.
+- **Signed kernel and modules** — `sbctl` signs the kernel, the initramfs and
+  the boot loader; every module is signed with a key the machine keeps, and a
+  pacman hook re-signs after a kernel or DKMS update. Enforcing module
+  signatures (`module.sig_enforce=1`) is left off: Arch ships modules unsigned
+  by default, and out-of-tree drivers built later would refuse to load until
+  they are signed too.
+
 ## Secure Boot, the AUR and other architectures
 
 - **Secure Boot** — `sbctl` creates keys, signs the kernel, the initramfs and the

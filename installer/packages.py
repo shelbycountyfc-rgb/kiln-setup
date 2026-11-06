@@ -176,6 +176,10 @@ def security_packages(cfg: InstallConfig) -> list:
     packages = []
     if cfg.secure_boot:
         packages.append("sbctl")
+    if cfg.hardening:
+        # mokutil reports the Secure Boot state the unit checks, tpm2-tools reads
+        # the measurements the disk key is bound to.
+        packages.extend(["mokutil", "tpm2-tools"])
     if cfg.alongside:
         # os-prober is what finds the other system and writes its menu entry.
         packages.append("os-prober")

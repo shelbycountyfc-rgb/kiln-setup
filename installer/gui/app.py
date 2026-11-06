@@ -163,6 +163,8 @@ class Installer:
             "unlock": "passphrase",
             "mirrorCountry": "Worldwide",
             "secureBoot": False,
+            "hardening": False,
+            "signedModules": False,
             "aur": False,
             "aurPackages": [],
             "arch": "x86_64",
