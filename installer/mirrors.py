@@ -60,8 +60,10 @@ def refresh(ctx, country: str = "", protocol: str = "https", count: int = 20) ->
         args[1:1] = ["--country", country]
     ctx.run(args, check=False, quiet=True)
     if ctx.dry_run:
-        return servers(), "Simulation: reflector would rewrite %s." % MIRRORLIST
-    found = servers()
+        return servers(MIRRORLIST), "Simulation: reflector would rewrite %s." % MIRRORLIST
+    # Read the path explicitly: a default argument would still point at the
+    # module-level value from import time.
+    found = servers(MIRRORLIST)
     if found == 0:
         if before:
             try:

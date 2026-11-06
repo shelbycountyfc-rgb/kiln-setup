@@ -246,9 +246,10 @@ disk(s) -> mdadm array -> LUKS2 container -> LVM volume group -> ext4/xfs/btrfs 
   partition is created in the free space, and `os-prober` is enabled so GRUB
   writes the other system's menu entry.
 - **Making room** — when there is no free space, one existing partition can be
-  shrunk first: the filesystem is resized (ext2/3/4, Btrfs, NTFS), then `parted`
-  moves the end of the partition, which keeps its number and PARTUUID. XFS, FAT,
-  swap and anything already mounted are refused rather than guessed at.
+  shrunk first: the filesystem is resized (ext2/3/4, Btrfs, NTFS), then the table
+  entry is rewritten with `sfdisk` at the same start sector, which keeps its
+  number, type and PARTUUID. XFS, FAT, swap and anything already mounted are
+  refused rather than guessed at.
 - **Kernel parameters and hibernation** — extra parameters are written into the
   boot entry verbatim; hibernation sizes the swap partition to hold memory and
   adds `resume=UUID=` plus the `resume` hook.

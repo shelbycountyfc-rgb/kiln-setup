@@ -548,11 +548,49 @@ def _partition_number(device: str) -> int:
     return int(match.group(1)) if match else 0
 
 
-def _first_sector(ctx: Context, disk: str, number: int) -> int:
-    """Where the partition starts, so a resize can keep the start sector."""
-    text = ctx.captured(["sgdisk", "-i", str(number), disk], quiet=True)
-    match = re.search(r"First sector:\s*(\d+)", text)
-    return int(match.group(1)) if match else 0
+def _resize_partition_table(
+    ctx: Context, disk: str, number: int, bytes_wanted: int
+) -> None:
+    """Move the end of one partition, keeping its number, type and UUID.
+
+    ``sfdisk --dump`` describes every partition in a form it reads back, so
+    rewriting one ``size=`` field changes nothing else: not the start sector,
+    not the type code, not the UUID the other system's boot loader looks for.
+    parted is not used because it stops to ask whether shrinking is intended,
+    which fails with no terminal attached.
+    """
+    table = ctx.captured(["sfdisk", "--dump", disk], quiet=True)
+    if not table.strip():
+        if ctx.dry_run:
+            return
+        raise RuntimeError("cannot read the partition table of %s" % disk)
+    sectors = bytes_wanted // 512
+    lines = []
+    changed = False
+    for line in table.splitlines():
+        stripped = line.strip()
+        if ":" in stripped and stripped.split(":", 1)[0].strip().startswith(disk):
+            device, _sep, fields = stripped.partition(":")
+            if _partition_number(device.strip()) == number:
+                updated = []
+                for field in (item.strip() for item in fields.split(",")):
+                    if field.startswith("size="):
+                        updated.append("size=%d" % sectors)
+                        changed = True
+                    else:
+                        updated.append(field)
+                line = "%s : %s" % (device.strip(), ", ".join(updated))
+        lines.append(line)
+    if not changed:
+        raise RuntimeError(
+            "partition %d is not in the table of %s" % (number, disk)
+        )
+    ctx.run(
+        ["sfdisk", "--no-reread", disk],
+        input_text="\n".join(lines) + "\n",
+    )
+    ctx.run(["partprobe", disk], check=False)
+    ctx.run(["udevadm", "settle"], check=False)
 
 
 def _shrink_filesystem(ctx: Context, kind: str, device: str, bytes_wanted: int) -> None:
@@ -578,9 +616,9 @@ def shrink_partition(ctx: Context, disk: str, device: str, bytes_wanted: int) ->
     """Shrink a partition that holds another system's filesystem.
 
     The filesystem goes first: shrinking the partition under a filesystem that
-    still fills it cuts the data off the end.  parted then moves the end of the
-    partition, which keeps its number and its PARTUUID, so the other system's
-    boot loader still finds it where it was.
+    still fills it cuts the data off the end.  The table entry is then rewritten
+    at the same start sector, which keeps its number, type and PARTUUID, so the
+    other system's boot loader still finds it where it was.
     """
     if bytes_wanted < 4 * GIB:
         raise RuntimeError("a partition cannot be shrunk below 4 GiB")
@@ -602,18 +640,7 @@ def shrink_partition(ctx: Context, disk: str, device: str, bytes_wanted: int) ->
     # One MiB of slack: the filesystem must never be asked to fill the last block
     # of the partition it lives in.
     _shrink_filesystem(ctx, kind, device, bytes_wanted - MIB)
-    start = _first_sector(ctx, disk, number)
-    if start <= 0:
-        if ctx.dry_run:
-            start = 2048
-        else:
-            raise RuntimeError("cannot read the first sector of %s" % device)
-    end = start + bytes_wanted // 512 - 1
-    ctx.run(
-        ["parted", "--script", disk, "unit", "s", "resizepart", str(number), str(end)]
-    )
-    ctx.run(["partprobe", disk], check=False)
-    ctx.run(["udevadm", "settle"], check=False)
+    _resize_partition_table(ctx, disk, number, bytes_wanted)
 
 
 def _sgdisk_spec(partition: PartitionPlan) -> str:

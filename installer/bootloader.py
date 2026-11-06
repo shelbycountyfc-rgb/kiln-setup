@@ -14,6 +14,7 @@ import os
 from .config import InstallConfig
 from .context import Context, uuid_of
 from .disk import DiskPlan
+from .system import KEYFILE_PATH
 
 GRUB_HEADER = """\
 # Written by Kiln Setup, an unofficial installer for Arch Linux.
@@ -109,6 +110,10 @@ def kernel_options(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> str:
             options.append(
                 "cryptdevice=UUID=%s:%s" % (layout.luks_uuid, layout.crypt_name)
             )
+            if cfg.unlock == "keyfile":
+                # The encrypt hook takes its key from the command line, not from
+                # /etc/crypttab: without cryptkey it still stops to ask.
+                options.append("cryptkey=rootfs:%s" % KEYFILE_PATH)
     if layout.volumes == "lvm":
         options.append("root=/dev/%s/%s" % (layout.vg, layout.lv))
     else:
@@ -305,6 +310,8 @@ def grub_defaults(cfg: InstallConfig, layout: DiskPlan | None = None) -> str:
                 extra.append(
                     "cryptdevice=UUID=%s:%s" % (layout.luks_uuid, layout.crypt_name)
                 )
+                if cfg.unlock == "keyfile":
+                    extra.append("cryptkey=rootfs:%s" % KEYFILE_PATH)
         if cfg.hibernate and layout.swap_uuid:
             extra.append("resume=UUID=%s" % layout.swap_uuid)
         extra.extend(cfg.kernel_param_list)

@@ -148,9 +148,9 @@ class Session:
                     "%s is missing from the live medium; the chosen storage layout needs it"
                     % tool
                 )
-        if self.cfg.shrink_partition and not ctx.dry_run and not _has("parted"):
+        if self.cfg.shrink_partition and not ctx.dry_run and not _has("sfdisk"):
             raise RuntimeError(
-                "parted is missing from the live medium; shrinking %s needs it"
+                "sfdisk is missing from the live medium; shrinking %s needs it"
                 % self.cfg.shrink_partition
             )
         if self.cfg.multilib:
