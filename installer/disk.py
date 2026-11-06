@@ -57,6 +57,11 @@ SHRINKABLE = {
     "ext4": "ext",
     "btrfs": "btrfs",
     "ntfs": "ntfs",
+    "vfat": "fat",
+    "fat16": "fat",
+    "fat32": "fat",
+    #: A swap area holds nothing to keep: it is switched off and made again.
+    "swap": "swap",
 }
 
 
@@ -140,6 +145,13 @@ class DiskPlan:
     encrypt_boot: bool = False
     shrink_partition: str = ""
     shrink_bytes: int = 0
+    #: A swap file on the root, when no swap partition is wanted.
+    swap_file_bytes: int = 0
+    swap_file: str = ""
+    #: Where the swap file starts, for the kernel's resume_offset.
+    swap_offset: int = 0
+    #: The UUID of the root file system, for resume= of a swap file.
+    root_uuid: str = ""
     swap_uuid: str = ""
     luks_device: str = ""
     luks_uuid: str = ""
@@ -391,6 +403,7 @@ def plan_layout(
     volumes: str = "partitions",
     raid: str = "none",
     raid_members=(),
+    swap_file: bool = False,
     keep_esp: str = "",
     alongside_number: int = 0,
     encrypt_boot: bool = False,
@@ -415,6 +428,14 @@ def plan_layout(
         shrink_bytes=int(max(0.0, shrink_gb) * GIB) if mode == "alongside" else 0,
         subvolumes=BTRFS_SUBVOLUMES if (root_fs == "btrfs" and mode == "erase") else (),
     )
+
+    if swap_file:
+        # The file is made once the root is mounted; its size is worked out here
+        # so the preview and the plan agree.
+        wanted = int(swap_gb * GIB) if swap_gb else recommended_swap(ram_bytes)
+        if hibernate:
+            wanted = max(wanted, ram_bytes + GIB)
+        plan.swap_file_bytes = max(0, wanted - (wanted % MIB))
 
     if mode == "alongside":
         number = alongside_number or 1
@@ -464,7 +485,7 @@ def plan_layout(
             size,
             efi=efi,
             root_fs=root_fs,
-            swap=swap,
+            swap=swap and not swap_file,
             swap_gb=swap_gb,
             esp_gb=esp_gb,
             separate_home=separate_home,
@@ -593,13 +614,34 @@ def _resize_partition_table(
     ctx.run(["udevadm", "settle"], check=False)
 
 
-def _shrink_filesystem(ctx: Context, kind: str, device: str, bytes_wanted: int) -> None:
-    """Make the filesystem smaller before the partition table is changed."""
+def _shrink_filesystem(
+    ctx: Context, disk: str, number: int, kind: str, device: str, bytes_wanted: int
+) -> None:
+    """Make the filesystem smaller before the partition table is changed.
+
+    ``swap`` holds nothing worth keeping: it is switched off here and made again
+    once the table has moved.  ``fat`` has no command-line resizer, so parted
+    shrinks the file system and moves the table entry in the same step.
+    """
     if kind == "ext":
         ctx.run(["e2fsck", "-f", "-y", device], check=False)
         ctx.run(["resize2fs", device, "%dK" % max(1, bytes_wanted // 1024)])
     elif kind == "ntfs":
         ctx.run(["ntfsresize", "--force", "--size", str(bytes_wanted), device])
+    elif kind == "swap":
+        ctx.run(["swapoff", device], check=False)
+    elif kind == "fat":
+        start = _partition_start_bytes(ctx, disk, number)
+        if start <= 0:
+            raise RuntimeError("cannot tell where %s begins on %s" % (device, disk))
+        ctx.run(["fsck.fat", "-a", device], check=False)
+        end = max(start + MIB, start + bytes_wanted)
+        ctx.run(
+            [
+                "parted", "-s", disk, "unit", "B", "resize", str(number),
+                str(start), str(end),
+            ]
+        )
     elif kind == "btrfs":
         mountpoint = ctx.target_path(".shrink")
         os.makedirs(mountpoint, exist_ok=True)
@@ -632,6 +674,16 @@ def shrink_partition(ctx: Context, disk: str, device: str, bytes_wanted: int) ->
             % (device, fstype or "an unknown filesystem")
         )
     number = _partition_number(device)
+    identity = ""
+    label = ""
+    if kind == "swap":
+        # The other system's fstab names this swap by UUID: put it back.
+        identity = ctx.captured(
+            ["blkid", "-s", "UUID", "-o", "value", device], quiet=True
+        ).strip()
+        label = ctx.captured(
+            ["blkid", "-s", "LABEL", "-o", "value", device], quiet=True
+        ).strip()
     if not number:
         raise RuntimeError("cannot tell which partition %s is" % device)
     ctx.log.log(
@@ -639,8 +691,98 @@ def shrink_partition(ctx: Context, disk: str, device: str, bytes_wanted: int) ->
     )
     # One MiB of slack: the filesystem must never be asked to fill the last block
     # of the partition it lives in.
-    _shrink_filesystem(ctx, kind, device, bytes_wanted - MIB)
+    _shrink_filesystem(ctx, disk, number, kind, device, bytes_wanted - MIB)
+    if kind == "fat":
+        # parted moved the table entry itself; there is nothing left to rewrite.
+        ctx.run(["partprobe", disk], check=False)
+        ctx.run(["udevadm", "settle"], check=False)
+        ctx.run(["fsck.fat", "-n", device], check=False)
+        return
     _resize_partition_table(ctx, disk, number, bytes_wanted)
+    if kind == "swap":
+        # Nothing was stored there, so it is made again at the new size with the
+        # UUID the other system's fstab refers to.
+        args = ["mkswap"]
+        if identity:
+            args += ["--uuid", identity]
+        if label:
+            args += ["--label", label]
+        ctx.run(args + [device])
+
+
+def _partition_start_bytes(ctx: Context, disk: str, number: int) -> int:
+    """Where a partition begins, in bytes, as the table describes it."""
+    table = ctx.captured(["sfdisk", "--dump", disk], quiet=True)
+    for line in (table or "").splitlines():
+        stripped = line.strip()
+        if ":" not in stripped or not stripped.startswith(disk):
+            continue
+        device, _sep, fields = stripped.partition(":")
+        if _partition_number(device.strip()) != number:
+            continue
+        values = {}
+        for field in fields.split(","):
+            key, _eq, value = field.strip().partition("=")
+            values[key] = value.strip()
+        try:
+            return int(values.get("start", "0")) * 512
+        except ValueError:
+            return 0
+    return 0
+
+
+def _resume_offset(ctx: Context, path: str, root_fs: str) -> int:
+    """Where the swap file starts on its device, in 4096-byte pages."""
+    if ctx.dry_run:
+        return 0
+    if root_fs == "btrfs":
+        text = ctx.captured(
+            ["btrfs", "inspect-internal", "map-swapfile", "-r", path], quiet=True
+        )
+        last = text.strip().splitlines()[-1] if text.strip() else ""
+        tokens = re.findall(r"\d+", last)
+        return int(tokens[-1]) if tokens else 0
+    text = ctx.captured(["filefrag", "-v", path], quiet=True)
+    block = 4096
+    found = re.search(r"blocks of (\d+) bytes", text)
+    if found:
+        block = int(found.group(1))
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("0:"):
+            continue
+        fields = stripped.split(":")
+        numbers = re.findall(r"\d+", fields[2]) if len(fields) > 2 else []
+        if numbers:
+            return int(numbers[0]) * block // 4096
+    return 0
+
+
+def _create_swap_file(ctx: Context, plan: DiskPlan) -> None:
+    """Put swap on a file in the root file system, hibernation included."""
+    if not plan.swap_file_bytes:
+        return
+    path = ctx.target_path("swap/swapfile")
+    ctx.log.log(
+        "creating a swap file of %d GiB at /swap/swapfile"
+        % (plan.swap_file_bytes // GIB),
+        "step",
+    )
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if plan.root_fs == "btrfs":
+        # mkswapfile creates it without COW and with the mode swapon wants.
+        ctx.run(
+            [
+                "btrfs", "filesystem", "mkswapfile",
+                "--size", str(plan.swap_file_bytes), path,
+            ]
+        )
+    else:
+        ctx.run(["fallocate", "-l", str(plan.swap_file_bytes), path])
+        ctx.run(["chmod", "600", path])
+        ctx.run(["mkswap", "-L", "SWAP", path])
+    plan.swap_file = "/swap/swapfile"
+    plan.swap_offset = _resume_offset(ctx, path, plan.root_fs)
 
 
 def _sgdisk_spec(partition: PartitionPlan) -> str:
@@ -812,6 +954,10 @@ def _apply_alongside(ctx: Context, plan: DiskPlan, passphrase: str) -> None:
     plan.mapper = device
     _mkfs(ctx, plan.root_fs, device, "ARCH")
     _mount_root(ctx, plan, device)
+    _create_swap_file(ctx, plan)
+    plan.root_uuid = ctx.captured(
+        ["blkid", "-s", "UUID", "-o", "value", device], quiet=True
+    ).strip()
     if not plan.keep_esp:
         raise RuntimeError(
             "no EFI system partition was found to keep; an installation alongside "
@@ -847,6 +993,10 @@ def apply_layout(ctx: Context, plan: DiskPlan, passphrase: str = "") -> None:
     _mkfs(ctx, plan.root_fs, device, "ARCH")
     _mount_root(ctx, plan, device)
 
+    _create_swap_file(ctx, plan)
+    plan.root_uuid = ctx.captured(
+        ["blkid", "-s", "UUID", "-o", "value", device], quiet=True
+    ).strip()
     if plan.esp is not None:
         boot = "boot/efi" if plan.encrypt_boot else "boot"
         os.makedirs(ctx.target_path(boot), exist_ok=True)

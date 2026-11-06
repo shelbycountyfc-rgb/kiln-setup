@@ -147,6 +147,7 @@ class Installer:
             "bootloader": chosen["bootloader"],
             "rootFs": "ext4",
             "swap": True,
+            "swapFile": False,
             "swapGb": chosen["swapGb"],
             "espGb": 1.0,
             "separateHome": False,

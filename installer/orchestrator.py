@@ -153,6 +153,21 @@ class Session:
                 "sfdisk is missing from the live medium; shrinking %s needs it"
                 % self.cfg.shrink_partition
             )
+        if self.cfg.shrink_partition and not ctx.dry_run:
+            # A FAT file system has no resizer of its own: parted does both the
+            # file system and the table entry, so it has to be there.
+            try:
+                fstype = ctx.captured(
+                    ["blkid", "-s", "TYPE", "-o", "value", self.cfg.shrink_partition],
+                    quiet=True,
+                ).strip().lower()
+            except Exception:
+                fstype = ""
+            if fstype in ("vfat", "fat16", "fat32") and not _has("parted"):
+                raise RuntimeError(
+                    "parted is missing from the live medium; shrinking a FAT "
+                    "partition needs it"
+                )
         if self.cfg.multilib:
             self._substep("Enabling the 32-bit multilib repository")
             packages.enable_live_multilib(ctx)
@@ -202,6 +217,7 @@ class Session:
             volumes=self.cfg.volumes,
             raid=self.cfg.raid,
             raid_members=raid_members,
+            swap_file=self.cfg.swap_file,
             keep_esp=self.cfg.keep_esp,
             alongside_number=alongside_number,
             encrypt_boot=self.cfg.encrypt_boot,
@@ -277,6 +293,14 @@ class Session:
         if not text.strip():
             raise RuntimeError("genfstab produced an empty /etc/fstab")
         ctx.write_target("etc/fstab", text.rstrip() + "\n")
+        if self.layout is not None and self.layout.swap_file:
+            # genfstab only knows devices, so the swap file is added here.
+            current = ctx.read_target("etc/fstab")
+            ctx.write_target(
+                "etc/fstab",
+                current.rstrip()
+                + "\n%s none swap defaults 0 0\n" % self.layout.swap_file,
+            )
 
     def _locale(self) -> None:
         system.configure(self.ctx, self.cfg, self.hw, self.layout)  # type: ignore[arg-type]

@@ -123,11 +123,25 @@ def kernel_options(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> str:
     options.append("rootfstype=%s" % cfg.root_fs)
     if layout.subvolumes:
         options.append("rootflags=subvol=@")
-    if cfg.hibernate and layout.swap is not None:
+    if cfg.hibernate:
         # The kernel has to know which swap holds the image it is meant to resume.
-        uuid = layout.swap_uuid or uuid_of(ctx, layout.swap.device)
+        uuid = ""
+        if layout.swap is not None:
+            uuid = layout.swap_uuid or uuid_of(ctx, layout.swap.device)
+        elif layout.swap_file and layout.swap_offset:
+            # A swap file is found by the file system it lives on and the page it
+            # starts at.
+            uuid = layout.root_uuid or uuid_of(ctx, layout.root_device)
+            if uuid:
+                options.append("resume_offset=%d" % layout.swap_offset)
         if uuid:
             options.append("resume=UUID=%s" % uuid)
+        elif layout.swap is not None or layout.swap_file:
+            ctx.log.log(
+                "the swap has no UUID or offset, so the machine cannot resume from "
+                "hibernation",
+                "warn",
+            )
     options.extend(cfg.kernel_param_list)
     return " ".join(options)
 
@@ -215,6 +229,28 @@ def _verify_kernel(ctx: Context, cfg: InstallConfig) -> None:
         )
 
 
+def firmware_setup_mode() -> bool:
+    """Whether the firmware is in setup mode, so new keys can be enrolled.
+
+    The EFI variable is four attribute bytes followed by one byte of value: 1
+    means the platform key has been cleared and the firmware takes new ones.
+    """
+    try:
+        names = os.listdir("/sys/firmware/efi/efivars")
+    except OSError:
+        return False
+    for name in names:
+        if not name.startswith("SetupMode-"):
+            continue
+        try:
+            with open("/sys/firmware/efi/efivars/" + name, "rb") as handle:
+                data = handle.read()
+        except OSError:
+            continue
+        return len(data) >= 5 and data[4] == 1
+    return False
+
+
 def sign_boot_files(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
     """Sign the kernel and the boot loader so Secure Boot accepts them.
 
@@ -225,6 +261,13 @@ def sign_boot_files(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
     """
     ctx.log.log("signing the boot files with sbctl", "step")
     ctx.chroot("command -v sbctl >/dev/null 2>&1 || exit 3", check=False)
+    # efivarfs has to be writable inside the chroot: that is how the keys reach
+    # the firmware, and arch-chroot does not mount it.
+    ctx.chroot(
+        "mountpoint -q /sys/firmware/efi/efivars || "
+        "mount -t efivarfs efivarfs /sys/firmware/efi/efivars",
+        check=False,
+    )
     ctx.chroot("sbctl status | grep -q 'Setup Mode:.*Enabled' || sbctl create-keys", check=False)
     kernel = "/boot/vmlinuz-%s" % cfg.kernel
     targets = [kernel]
@@ -239,14 +282,30 @@ def sign_boot_files(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
             % (shlex_quote(target), shlex_quote(target)),
             check=False,
         )
-    result = ctx.chroot("sbctl enroll-keys --microsoft", check=False)
-    if getattr(result, "returncode", 1) != 0:
+    if ctx.dry_run or firmware_setup_mode():
+        # The firmware takes new keys only in setup mode; when it is, the medium
+        # hands them over before the first boot.
+        result = ctx.chroot("sbctl enroll-keys --microsoft", check=False)
+        if getattr(result, "returncode", 1) == 0:
+            ctx.log.log(
+                "the firmware was in setup mode, so the keys are enrolled; Secure Boot "
+                "can be turned on again in the firmware",
+                "step",
+            )
+        else:
+            ctx.log.log(
+                "the firmware refused the new keys. Run 'sbctl enroll-keys --microsoft' "
+                "from the installed system once the firmware is in setup mode.",
+                "warn",
+            )
+    else:
         ctx.log.log(
-            "the firmware refused the new keys. Reboot into the firmware setup, clear "
-            "the Secure Boot keys (setup mode), then run 'sbctl enroll-keys --microsoft' "
-            "once from the installed system.",
+            "the firmware is not in setup mode, so the keys are created and the files "
+            "signed but not enrolled. Clear the Secure Boot keys in the firmware (setup "
+            "mode) and run 'sbctl enroll-keys --microsoft' from the installed system.",
             "warn",
         )
+    ctx.chroot("umount /sys/firmware/efi/efivars 2>/dev/null || true", check=False)
 
 
 def shlex_quote(value: str) -> str:
@@ -312,8 +371,13 @@ def grub_defaults(cfg: InstallConfig, layout: DiskPlan | None = None) -> str:
                 )
                 if cfg.unlock == "keyfile":
                     extra.append("cryptkey=rootfs:%s" % KEYFILE_PATH)
-        if cfg.hibernate and layout.swap_uuid:
-            extra.append("resume=UUID=%s" % layout.swap_uuid)
+        if cfg.hibernate:
+            if layout.swap_uuid:
+                extra.append("resume=UUID=%s" % layout.swap_uuid)
+            elif layout.swap_file and layout.swap_offset and layout.root_uuid:
+                # A swap file: the file system it lives on, and where it starts.
+                extra.append("resume=UUID=%s" % layout.root_uuid)
+                extra.append("resume_offset=%d" % layout.swap_offset)
         extra.extend(cfg.kernel_param_list)
         if extra:
             header = header.replace(

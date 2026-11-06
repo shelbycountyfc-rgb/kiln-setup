@@ -275,13 +275,15 @@ disk(s) -> mdadm array -> LUKS2 container -> LVM volume group -> ext4/xfs/btrfs 
 ## What is not implemented
 
 - Reviewing or signing AUR recipes, or third-party repositories.
-- Shrinking a filesystem with no shrinking tool: XFS, FAT and swap partitions are
-  refused instead of being reformatted.
-- Resuming from a swap file: hibernation writes to a swap partition.
-- A TPM unlock for an encrypted `/boot`: GRUB cannot ask the TPM for the key, so
-  the two choices are refused together.
-- Enrolling Secure Boot keys from the medium: that needs the firmware in setup
-  mode, which no installer can force.
+- Shrinking an XFS filesystem: no tool can make XFS smaller, so such a partition
+  is refused rather than reformatted.  ext2/3/4, Btrfs, NTFS, FAT and swap
+  partitions can be shrunk; FAT through parted, swap by being made again.
+- Unlocking an encrypted `/boot` with the TPM alone: GRUB cannot ask the TPM for
+  the key, so it still asks for the passphrase.  The two choices are allowed
+  together, and the TPM then removes the second prompt the initramfs would ask.
+- Enrolling Secure Boot keys without the firmware in setup mode: the installer
+  hands the keys to the firmware from the medium when it is in setup mode, and
+  otherwise prints the one command that finishes the job after a reboot.
 
 ## Safety
 

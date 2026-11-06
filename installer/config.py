@@ -52,6 +52,8 @@ class InstallConfig:
     root_fs: str = "ext4"
     swap: bool = True
     swap_gb: float | None = None
+    #: Swap as a file on the root instead of a partition of its own.
+    swap_file: bool = False
     esp_gb: float = 1.0
     separate_home: bool = False
     # -- storage stack ------------------------------------------------------
@@ -104,6 +106,7 @@ class InstallConfig:
         config.bootloader = str(data.get("bootloader", "auto")).strip().lower() or "auto"
         config.root_fs = str(data.get("rootFs", "ext4")).strip().lower() or "ext4"
         config.swap = bool(data.get("swap", True))
+        config.swap_file = bool(data.get("swapFile", False))
         swap_gb = data.get("swapGb")
         try:
             config.swap_gb = None if swap_gb in (None, "", 0, "0", 0.0) else float(swap_gb)
@@ -140,8 +143,9 @@ class InstallConfig:
         config.aur_packages = [str(p).strip() for p in aur_packages if str(p).strip()]
         config.arch = str(data.get("arch", "x86_64")).strip().lower() or "x86_64"
         if config.mode == "alongside":
-            # There is no free space to give a swap partition of our own.
-            config.swap = False
+            # There is no free space to give a swap partition of our own; a swap
+            # file lives on the root instead.
+            config.swap = bool(config.swap_file)
             config.separate_home = False
         config.hostname = str(data.get("hostname", "archlinux")).strip() or "archlinux"
         config.timezone = str(data.get("timezone", "UTC")).strip() or "UTC"
@@ -320,11 +324,6 @@ class InstallConfig:
             errors.append("Unknown unlock method %r." % self.unlock)
         elif self.unlock != "passphrase" and not self.encrypted:
             errors.append("A key file or TPM unlock needs an encrypted root.")
-        elif self.unlock == "tpm2" and self.encrypt_boot:
-            errors.append(
-                "GRUB cannot ask the TPM for the key, so /boot has to stay on the EFI "
-                "partition for a TPM unlock."
-            )
 
         # -- firmware and architecture --------------------------------------
         if self.secure_boot and not self.efi:
@@ -402,12 +401,14 @@ class InstallConfig:
                     errors.append("Invalid group name %r." % group)
         if self.hibernate:
             if not self.swap:
-                errors.append("Hibernation needs a swap partition to write memory into.")
-            if self.alongside:
+                errors.append("Hibernation needs swap to write the image of memory into.")
+            if self.alongside and not self.swap_file:
                 errors.append(
                     "There is no swap partition of our own in the free space of the "
-                    "disk to hibernate into."
+                    "disk to hibernate into; choose a swap file instead."
                 )
+        if self.swap_file and not self.swap:
+            errors.append("A swap file needs swap to be turned on as well.")
         if len(self.kernel_params) > 400:
             errors.append("The kernel command line is limited to 400 characters.")
         for token in self.kernel_param_list:
@@ -438,6 +439,7 @@ class InstallConfig:
             "rootFs": self.root_fs,
             "swap": self.swap,
             "swapGb": self.swap_gb,
+            "swapFile": self.swap_file,
             "espGb": self.esp_gb,
             "separateHome": self.separate_home,
             "encryption": self.encryption,

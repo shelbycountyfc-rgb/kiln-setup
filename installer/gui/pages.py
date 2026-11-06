@@ -521,9 +521,17 @@ class DiskPage(Page):
         holder = form.field("Swap", "Swap lets the machine hibernate and survives a full memory.")
         self.swap = tk.BooleanVar(value=self.app.form["swap"])
         ttk.Checkbutton(
-            holder, text="Create a swap partition", variable=self.swap,
+            holder, text="Create swap", variable=self.swap,
             style="Panel.TCheckbutton", command=self._refresh_preview,
         ).pack(anchor="w")
+        self.swap_kind = tk.StringVar(
+            value="Swap file" if self.app.form.get("swapFile") else "Swap partition"
+        )
+        ttk.Combobox(
+            holder, textvariable=self.swap_kind, values=["Swap partition", "Swap file"],
+            state="readonly", width=16,
+        ).pack(anchor="w", pady=(4, 0))
+        self.swap_kind.trace_add("write", lambda *_: self._refresh_preview())
         self.swapgb = tk.StringVar(value="%.1f" % (self.app.form["swapGb"] or 8.0))
         ttk.Spinbox(
             holder, textvariable=self.swapgb, from_=0, to=2048, increment=0.5,
@@ -585,6 +593,7 @@ class DiskPage(Page):
         plan = disk_module.plan_layout(
             device, found.size, efi=self.app.form["efi"], root_fs=self.rootfs.get(),
             swap=self.swap.get(), swap_gb=swap_gb or None, esp_gb=esp_gb,
+            swap_file=self.swap_kind.get() == "Swap file",
             separate_home=self.home.get(), ram_bytes=self.app.hardware.ram_bytes,
             mode=self.app.form.get("mode", "erase"),
             encryption=self.app.form.get("encryption", "none"),
@@ -639,6 +648,7 @@ class DiskPage(Page):
         form = self.app.form
         form["rootFs"] = self.rootfs.get()
         form["swap"] = bool(self.swap.get())
+        form["swapFile"] = self.swap_kind.get() == "Swap file"
         try:
             form["swapGb"] = float(self.swapgb.get())
         except ValueError:
@@ -783,8 +793,8 @@ class StoragePage(Page):
         form.pack(fill="x")
         holder = form.field(
             "Secure Boot",
-            "sbctl creates keys and signs the kernel and the boot loader; enrolling them "
-            "needs the firmware in setup mode.",
+            "sbctl creates keys and signs the kernel and the boot loader; the keys are "
+            "enrolled from the medium when the firmware is in setup mode.",
         )
         self.secure = tk.BooleanVar(value=bool(form_data.get("secureBoot")))
         ttk.Checkbutton(
@@ -815,7 +825,8 @@ class StoragePage(Page):
         holder = form.field(
             "Encrypt /boot",
             "Keeps the kernel and the initramfs inside the container. GRUB then has to "
-            "ask for the passphrase before it can load a kernel; UEFI and GRUB only.",
+            "ask for the passphrase before it can load a kernel; UEFI and GRUB only. "
+            "With a TPM unlock GRUB still asks, because it cannot ask the TPM.",
         )
         self.encrypt_boot = tk.BooleanVar(value=bool(form_data.get("encryptBoot")))
         ttk.Checkbutton(
@@ -850,7 +861,8 @@ class StoragePage(Page):
         form.pack(fill="x")
         holder = form.field(
             "Shrink",
-            "Only ext2/3/4, Btrfs and NTFS can be shrunk. The filesystem is checked and "
+            "ext2/3/4, Btrfs, NTFS, FAT and swap can be shrunk; no tool can make XFS "
+            "smaller. The file system is checked and "
             "shrunk before the partition table is touched.",
         )
         self._shrink_labels = {"Leave the other systems alone": ""}
@@ -1046,11 +1058,12 @@ class SystemPage(Page):
         ttk.Entry(holder, textvariable=self.kernel_params, width=46).pack(side="left")
         holder = form.field(
             "Hibernation",
-            "Writes the contents of memory to the swap partition and resumes from it.",
+            "Writes the contents of memory to swap, a partition or a file on the "
+            "root, and resumes from it.",
         )
         self.hibernate = tk.BooleanVar(value=bool(form_data.get("hibernate")))
         ttk.Checkbutton(
-            holder, text="Set up hibernation into the swap partition",
+            holder, text="Set up hibernation into swap",
             variable=self.hibernate, style="Panel.TCheckbutton",
         ).pack(anchor="w")
 
