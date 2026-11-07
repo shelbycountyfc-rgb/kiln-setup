@@ -421,6 +421,15 @@ stale_volume = InstallConfig.from_dict({"volumes": ""})
 check(stale_volume.volumes == "partitions",
       "an empty answer falls back to plain partitions: %r" % stale_volume.volumes)
 
+# -- the medium must carry a UEFI boot entry the firmware can catalogue ------
+profile = open("iso/profile/profiledef.sh", encoding="utf-8").read()
+check("uefi-x64.systemd-boot.eltorito" in profile,
+      "the profile registers a UEFI El Torito image, not just an ESP partition")
+check("uefi-x64.systemd-boot.esp" in profile,
+      "the profile still builds the ESP for USB media")
+check("bios.syslinux.eltorito" in profile and "bios.syslinux.mbr" in profile,
+      "the profile keeps both BIOS boot modes")
+
 
 print("\n%s: %d failure(s)"
       % ("INSTALLER CHECK PASS" if not failures else "INSTALLER CHECK FAIL", len(failures)))
