@@ -154,9 +154,11 @@ device, usually the installed disk's own GRUB.  Check these in order:
   partition: run `dd if=kiln-setup-*.iso of=/dev/sdX bs=4M status=progress
   oflag=sync` as root.  Writing it to `/dev/sdX1` leaves the UEFI system
   partition that the firmware looks for on the stick out of the picture.
-- **UEFI from a CD or ISO-only VM.** The image registers its UEFI loader as an
-  appended GPT partition, the way a USB stick is read, not as an El Torito
-  entry, so a firmware that only catalogues optical media has nothing to start.
+- **"No bootable option or device was found".** That is EFI firmware that only
+  reads the boot catalogue finding no EFI entry.  Builds from revision 3 on
+  register a UEFI El Torito image as well as the ESP partition, so this image
+  boots from a disc under EFI; on an older image, turn EFI off in the VM
+  settings or boot the stick as a disk.
 
 ## If the menu entry opens nothing
 
