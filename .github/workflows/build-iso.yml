@@ -38,10 +38,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build the image in an Arch Linux container
+        env:
+          # The runner's out/ starts empty, so without this every hand-started
+          # build would be named -r1.  Pass the number the build should carry.
+          REVISION: ${{ inputs.revision }}
         run: |
           set -euo pipefail
           mkdir -p out
-          docker run --rm --privileged \
+          docker run --rm --privileged -e REVISION="${REVISION:-}" \
             -v "$PWD:/build" \
             -w /build \
             archlinux:latest \
@@ -50,7 +54,9 @@ jobs:
               # mtools builds the EFI system partition image; without it mkarchiso
               # silently drops the UEFI boot mode and the ISO will not boot on UEFI.
               pacman -Sy --noconfirm --needed archiso mkinitcpio python mtools dosfstools
-              ./iso/build-iso.sh --out /build/out
+              args=( --out /build/out )
+              if [[ -n "${REVISION:-}" ]]; then args+=( --revision "$REVISION" ); fi
+              ./iso/build-iso.sh "${args[@]}"
             '
 
       - name: Verify the checksum
