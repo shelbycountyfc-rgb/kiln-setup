@@ -791,7 +791,7 @@ def _sgdisk_spec(partition: PartitionPlan) -> str:
     return "+%dM" % mib
 
 
-def _mkfs(ctx: Context, fs: str, device: str, label: str) -> None:
+def _mkfs(ctx: Context, fs: str, device: str, label: str, role: str = "partition") -> None:
     if fs == "vfat":
         ctx.run(["mkfs.fat", "-F", "32", "-n", label or "EFI", device])
     elif fs == "swap":
@@ -803,7 +803,10 @@ def _mkfs(ctx: Context, fs: str, device: str, label: str) -> None:
     elif fs == "btrfs":
         ctx.run(["mkfs.btrfs", "-f", "-L", label or "ARCH", device])
     else:
-        raise RuntimeError("unsupported filesystem %r" % fs)
+        raise RuntimeError(
+            "cannot format %s (%s): unsupported filesystem %r"
+            % (device, role or "partition", fs)
+        )
 
 
 def _unmount_disk(ctx: Context, disk: str) -> None:
@@ -853,9 +856,9 @@ def _create_partitions(ctx: Context, plan: DiskPlan) -> None:
     # ESP, swap and a separate /home are formatted only in this loop.
     for member in plan.members:
         for partition in member.partitions:
-            if partition.keep or partition.role == "bios" or not partition.fs:
+            if partition.keep or partition.role in ("bios", "root") or not partition.fs:
                 continue
-            _mkfs(ctx, partition.fs, partition.device, partition.label)
+            _mkfs(ctx, partition.fs, partition.device, partition.label, partition.role)
 
 
 def _create_array(ctx: Context, plan: DiskPlan) -> None:
@@ -952,7 +955,7 @@ def _apply_alongside(ctx: Context, plan: DiskPlan, passphrase: str) -> None:
     device = _open_luks(ctx, plan, root.device, passphrase)
     device = _create_lvm(ctx, plan, device)
     plan.mapper = device
-    _mkfs(ctx, plan.root_fs, device, "ARCH")
+    _mkfs(ctx, plan.root_fs, device, "ARCH", "root")
     _mount_root(ctx, plan, device)
     _create_swap_file(ctx, plan)
     plan.root_uuid = ctx.captured(
@@ -990,7 +993,7 @@ def apply_layout(ctx: Context, plan: DiskPlan, passphrase: str = "") -> None:
         if scan.strip():
             ctx.write_target("etc/mdadm.conf", scan.rstrip() + "\n")
 
-    _mkfs(ctx, plan.root_fs, device, "ARCH")
+    _mkfs(ctx, plan.root_fs, device, "ARCH", "root")
     _mount_root(ctx, plan, device)
 
     _create_swap_file(ctx, plan)

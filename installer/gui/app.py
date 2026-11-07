@@ -402,6 +402,20 @@ class Installer:
         self.session.start()
         return []
 
+    def start_over(self) -> None:
+        """Forget a failed attempt and return to the review step.
+
+        The answers stay where they were: a second try usually changes one of
+        them, not all of them.
+        """
+        session = self.session
+        if session is not None and session.running:
+            return
+        self.session = None
+        self.configuration = None
+        self.pages["progress"].reset()
+        self.goto("summary" if "summary" in self.ORDER else self.ORDER[-2])
+
     def power(self, action: str) -> None:
         if action not in ("reboot", "poweroff"):
             return

@@ -1,0 +1,25 @@
+name: checks
+
+# The installer is Python, so its checks run in seconds.  They used to live on
+# one machine only; this is what makes them part of every change.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  python:
+    name: Installer checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install Tk and a virtual display
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk xvfb
+
+      - name: Run the checks
+        run: bash tests/run.sh

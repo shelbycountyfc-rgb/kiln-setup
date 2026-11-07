@@ -317,11 +317,17 @@ disk(s) -> mdadm array -> LUKS2 container -> LVM volume group -> ext4/xfs/btrfs 
   then **Install** on the review page), and the layout is shown before anything
   is written.
 - The medium runs as root and cannot be locked: do not leave it unattended.
+- A failed installation copies its log into the new system, closes the
+  container and unmounts the target before it stops, and the progress page
+  offers a **Start over** button that keeps every answer.
+- Success is only reported after the target has been synced and unmounted: a
+  target that stays busy fails the installation instead.
 
 ## Verification status
 
-Checked in the authoring environment (Windows, Python 3.13, no Arch, no root, no
-X display):
+Checked by `tests/run.sh` on every push (`.github/workflows/checks.yml`), and the
+image itself is booted on BIOS and UEFI in QEMU after it is built
+(`tests/boot-smoke.py`):
 
 - `python3 -m compileall` over `installer/` and `panel/` — passes.
 - `python3 -m installer --selftest` — all 13 phases complete against simulated

@@ -72,6 +72,8 @@ class Session:
         self.current = ""
         self.detail = ""
         self.error = ""
+        self.note = ""
+        self.note = ""
         self.running = False
         self.done = False
         self.started_at = 0.0
@@ -102,6 +104,8 @@ class Session:
                 "running": self.running,
                 "done": self.done,
                 "error": self.error,
+                "note": self.note,
+                "note": self.note,
                 "percent": self.percent,
                 "current": self.current,
                 "detail": self.detail,
@@ -347,6 +351,54 @@ class Session:
         system.finalize(ctx)
         self.logger.log("installation complete", "step")
 
+    # -- failure -----------------------------------------------------------
+    def _written_so_far(self) -> str:
+        """One sentence about how far the installation got."""
+        finished = [
+            PHASE_LABELS[pid]
+            for pid, _label, _weight in PHASES
+            if self.state.get(pid) == "done"
+        ]
+        if not finished:
+            return "Nothing had been written yet."
+        return "Finished before the failure: %s." % ", ".join(finished)
+
+    def _save_failure_log(self) -> None:
+        """Keep the log where the next attempt can read it.
+
+        The live root lives in memory, so a log left there is gone at reboot,
+        which is exactly when someone wants to read it.
+        """
+        if self.ctx.dry_run or not os.path.exists(LOG_PATH):
+            return
+        target = self.ctx.target_path("var/log/kiln-setup.log")
+        if not os.path.ismount(self.ctx.target):
+            return
+        try:
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            self.ctx.run(
+                ["install", "-D", "-m", "644", LOG_PATH, target],
+                check=False, quiet=True,
+            )
+            self.logger.log("the log was copied to %s" % target, "step")
+        except OSError as error:
+            self.logger.log("could not copy the log: %s" % error, "warn")
+
+    def unwind(self) -> None:
+        """Put the machine back into a state that can be looked at."""
+        if self.ctx.dry_run:
+            return
+        for command in (["swapoff", "-a"], ["sync"]):
+            self.ctx.run(command, check=False, quiet=True)
+        self.ctx.run(["umount", "-R", self.ctx.target], check=False, quiet=True)
+        plan = self.layout
+        if plan is not None and (plan.mapper or "").startswith("/dev/mapper/"):
+            self.ctx.run(
+                ["cryptsetup", "close", plan.mapper[len("/dev/mapper/"):]],
+                check=False, quiet=True,
+            )
+        self.logger.log("unwound the mounts of %s" % self.ctx.target, "step")
+
     # -- driver ------------------------------------------------------------
     def run(self) -> None:
         self.running = True
@@ -379,6 +431,14 @@ class Session:
             self.logger.log("FAILED: %s" % error, "error")
             for line in traceback.format_exc().splitlines():
                 self.logger.log(line, "error")
+            self.note = self._written_so_far()
+            self.logger.log(self.note, "step")
+            self._save_failure_log()
+            self.unwind()
+            self.note = self._written_so_far()
+            self.logger.log(self.note, "step")
+            self._save_failure_log()
+            self.unwind()
         finally:
             with self._lock:
                 self.running = False

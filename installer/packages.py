@@ -307,7 +307,23 @@ def ensure_keyring(ctx: Context) -> None:
 def pacstrap(ctx: Context, cfg: InstallConfig, packages: list) -> None:
     ensure_keyring(ctx)
     ctx.log.log("pacstrap: %s" % install_size_hint(packages), "step")
-    ctx.run(["pacstrap", "-K", ctx.target] + list(packages))
+    # The live root is copy-on-write in memory: a desktop's downloads do not
+    # fit there on a small machine.  The target is mounted by now, so its
+    # cache directory takes the packages instead.
+    cache = ctx.target_path("var/cache/pacman/pkg")
+    bound = False
+    if not ctx.dry_run:
+        try:
+            os.makedirs(cache, exist_ok=True)
+            ctx.run(["mount", "--bind", cache, "/var/cache/pacman/pkg"], check=False)
+            bound = True
+        except OSError as error:
+            ctx.log.log("could not move the package cache: %s" % error, "warn")
+    try:
+        ctx.run(["pacstrap", "-K", ctx.target] + list(packages))
+    finally:
+        if bound:
+            ctx.run(["umount", "/var/cache/pacman/pkg"], check=False, quiet=True)
 
 
 def install(ctx: Context, packages: list) -> None:

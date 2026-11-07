@@ -26,6 +26,9 @@ jobs:
     name: Build the installer ISO
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      # Optional: importing a signing key turns on the signature step below.
+      GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
@@ -53,6 +56,15 @@ jobs:
           ls -l
           sha256sum -c ./*.iso.sha256
 
+      - name: Sign the checksum
+        if: env.GPG_PRIVATE_KEY != ''
+        run: |
+          set -euo pipefail
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          for file in out/*.iso.sha256; do
+            gpg --batch --yes --armor --detach-sign "$file"
+          done
+
       - name: Show what the image contains
         run: |
           set -euo pipefail
@@ -66,6 +78,7 @@ jobs:
           path: |
             out/*.iso
             out/*.iso.sha256
+            out/*.iso.sha256.asc
           if-no-files-found: error
           retention-days: 30
 
@@ -93,4 +106,37 @@ jobs:
           files: |
             out/*.iso
             out/*.iso.sha256
+            out/*.iso.sha256.asc
           fail_on_unmatched_files: true
+
+  smoke:
+    name: Boot the image in QEMU
+    needs: iso
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Take the image from the build job
+        uses: actions/download-artifact@v4
+        with:
+          name: kiln-setup-iso
+          path: out
+
+      - name: Install QEMU and OVMF
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf
+
+      - name: Boot it on legacy BIOS
+        run: |
+          set -euo pipefail
+          image="$(ls out/*.iso | head -1)"
+          python3 tests/boot-smoke.py "$image" --wait 240
+
+      - name: Boot it on UEFI
+        run: |
+          set -euo pipefail
+          image="$(ls out/*.iso | head -1)"
+          python3 tests/boot-smoke.py "$image" --uefi --wait 300

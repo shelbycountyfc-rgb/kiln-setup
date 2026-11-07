@@ -324,9 +324,25 @@ def copy_log(ctx: Context, path: str = LOG_PATH) -> None:
 
 
 def finalize(ctx: Context) -> None:
-    """Unwind the mounts so the installed system can be rebooted into."""
+    """Unwind the mounts so the installed system can be rebooted into.
+
+    A target that stays mounted means the last writes did not reach the disk:
+    reporting "installation complete" over it is how a system boots into a
+    half-written /etc.
+    """
+    if ctx.dry_run:
+        return
     ctx.run(["swapoff", "-a"], check=False, quiet=True)
-    ctx.run(["umount", "-R", ctx.target], check=False)
+    ctx.run(["sync"], check=False, quiet=True)
+    for _attempt in range(3):
+        ctx.run(["umount", "-R", ctx.target], check=False, quiet=True)
+        if not os.path.ismount(ctx.target):
+            return
+        ctx.run(["sleep", "1"], check=False, quiet=True)
+    raise RuntimeError(
+        "the new system is still mounted at %s: something is using it, so the "
+        "installation was not written out completely" % ctx.target
+    )
 
 
 def configure(ctx: Context, cfg: InstallConfig, hw: HardwareProfile, layout: DiskPlan) -> None:

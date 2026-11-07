@@ -1551,6 +1551,10 @@ class ProgressPage(Page):
             anchor="w", justify="left", wraplength=660,
         )
         self.detail_label.pack(fill="x", pady=(4, 0))
+        self.retry_button = ttk.Button(
+            card.body, text="Start over", style="Secondary.TButton",
+            command=self._start_over,
+        )
 
         phases = Card(body, theme, "Steps")
         phases.pack(fill="x", pady=(0, 16))
@@ -1602,10 +1606,16 @@ class ProgressPage(Page):
         self.bar["value"] = status["percent"]
         if status["error"]:
             self.percent_label.configure(text="Installation failed", fg=self.theme.fail)
-            self.detail_label.configure(text=status["error"])
+            self.detail_label.configure(
+                text="%s %s" % (status["error"], status.get("note", ""))
+            )
             self.app.mark_rail_failed()
             self.app.set_next_text("Close")
             self.app.set_back_enabled(False)
+            if not self.retry_button.winfo_manager():
+                self.retry_button.pack(fill="x", pady=(10, 0))
+            if not self.retry_button.winfo_manager():
+                self.retry_button.pack(fill="x", pady=(10, 0))
             self.show_errors(
                 ["The installation stopped: %s" % status["error"], "See the log above for the last command."]
             )
@@ -1613,6 +1623,8 @@ class ProgressPage(Page):
             self.percent_label.configure(text="Installation complete", fg=self.theme.ok)
             self.detail_label.configure(text="All steps finished in %d minutes." % max(1, status["elapsed"] // 60))
             self.app.set_next_text("Finish")
+            self.retry_button.pack_forget()
+            self.retry_button.pack_forget()
         else:
             self.percent_label.configure(text="%d%%  \u00b7  %s" % (status["percent"], status["current"]))
             self.detail_label.configure(text=status["detail"])
@@ -1623,6 +1635,19 @@ class ProgressPage(Page):
             self.after(400, self._poll)
 
     MARKS = {"done": "\u2713", "running": "\u25b6", "pending": "\u00b7", "failed": "!"}
+
+    def reset(self) -> None:
+        """Clear the page so a new attempt starts from the beginning."""
+        self.bar["value"] = 0
+        self.percent_label.configure(text="Waiting to start", fg=self.theme.ink_soft)
+        self.detail_label.configure(text="")
+        self.log.configure(state="normal")
+        self.log.delete("1.0", "end")
+        self.log.configure(state="disabled")
+        self.retry_button.pack_forget()
+
+    def _start_over(self) -> None:
+        self.app.start_over()
 
     def _phase_text(self, state: str, label: str) -> str:
         return "  %s  %s" % (self.MARKS.get(state, "\u00b7"), label)
