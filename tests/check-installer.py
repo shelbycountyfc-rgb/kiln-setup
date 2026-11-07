@@ -143,6 +143,14 @@ check("Preparing" in session._written_so_far(),
 session.unwind()  # dry run: it must not execute anything
 check(True, "unwinding is safe in a dry run")
 
+# -- a dry run creates nothing on the host filesystem ------------------------
+with mock.patch("os.makedirs", side_effect=AssertionError("a dry run created a directory")):
+    dry = Session(profile, cfg, dry_run=True, log_path=None)
+    dry.run()
+check(not dry.error, "the dry run finished without touching a directory (%r)" % dry.error)
+check(dry.done, "the dry run reached the end")
+
+
 print("\n%s: %d failure(s)"
       % ("INSTALLER CHECK PASS" if not failures else "INSTALLER CHECK FAIL", len(failures)))
 sys.exit(1 if failures else 0)
