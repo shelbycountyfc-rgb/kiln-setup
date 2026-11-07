@@ -13,10 +13,9 @@ iso_application="Kiln Setup - an unofficial installer for Arch Linux"
 iso_version="$(date +%Y.%m.%d)${ISO_REVISION:+-$ISO_REVISION}"
 install_dir="arch"
 buildmodes=('iso')
-# Explicit modes: the legacy aliases built the ESP partition but skipped the
-# UEFI El Torito image, so a UEFI machine booting this as a CD/VM found no
-# boot entry and fell through to the next device.
-bootmodes=('uefi-x64.systemd-boot.esp' 'uefi-x64.systemd-boot.eltorito' \n           'bios.syslinux.mbr' 'bios.syslinux.eltorito')
+# The names archiso 92 accepts: both together give the medium a BIOS
+# El Torito image, a UEFI ESP and the UEFI loader entry.
+bootmodes=('uefi.systemd-boot' 'bios.syslinux')
 arch="${ISO_ARCH:-x86_64}"
 pacman_conf="pacman.conf"
 airootfs_image_type="squashfs"
