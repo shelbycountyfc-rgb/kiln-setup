@@ -129,6 +129,10 @@ class InstallConfig:
         if isinstance(raid_disks, str):
             raid_disks = [d for d in re.split(r"[\s,]+", raid_disks) if d]
         config.raid_disks = [str(d).strip() for d in raid_disks if str(d).strip()]
+        if not config.uses_raid:
+            # "No array" is the default: a member disk list left over from an
+            # earlier RAID choice must not travel with the configuration.
+            config.raid_disks = []
         config.keep_esp = str(data.get("keepEsp", "")).strip()
         config.shrink_partition = str(data.get("shrinkPartition", "")).strip()
         try:
