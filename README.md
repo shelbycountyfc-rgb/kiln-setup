@@ -138,6 +138,28 @@ executed as an argument list through `pkexec` (the polkit prompt) with `sudo -n`
 as the fallback. The panel runs as your user and never asks for the root
 password itself.
 
+### If the menu entry opens nothing
+
+A desktop entry has no terminal, so a failure there is silent by default. It is
+not silent here: the launcher writes to `~/.local/state/kiln-panel.log`, and a
+failure ends in a dialog naming the reason (`zenity` or `kdialog`, whichever the
+desktop has).
+
+```bash
+kiln-panel --doctor    # python3, Tk, /opt/kiln-setup, the display, the log path
+kiln-panel             # from a terminal: the traceback appears here
+```
+
+The three causes seen so far:
+
+- `python` or `tk` is not installed — `sudo pacman -S python tk`. Both are part
+  of the base set the installer installs, so this means the system predates them.
+- `/opt/kiln-setup` is missing because the medium could not copy it at the end of
+  the installation. `/var/log/kiln-setup.log` says so, and with no panel there
+  is now no menu entry at all instead of one that starts nothing.
+- No `DISPLAY`: the entry was started from a root shell on a text console, where
+  a Tk window has nowhere to appear.
+
 ## Running it
 
 ### Try the interface (any system with Python and Tk, no root)

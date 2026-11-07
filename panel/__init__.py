@@ -5,5 +5,5 @@ the installed system (software by category, services, users, network, updates)
 with the same look as the installer.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 APP_NAME = "Arch Control Panel"

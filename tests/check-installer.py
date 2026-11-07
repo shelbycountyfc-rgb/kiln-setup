@@ -10,6 +10,7 @@ Run from the arch/ directory: python tests/check-installer.py
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import types
@@ -353,6 +354,53 @@ check(
     "the medium ships the new formatters (missing: %r)"
     % sorted({"f2fs-tools", "bcachefs-tools"} - medium),
 )
+
+# -- the panel says why it did not open -------------------------------------
+check("kiln-panel.log" in system.PANEL_LAUNCHER,
+      "the launcher keeps its output in a log the user can read")
+check('cd "$ROOT"' in system.PANEL_LAUNCHER,
+      "the launcher runs from /opt/kiln-setup, not from the user's directory")
+check("zenity" in system.PANEL_LAUNCHER and "kdialog" in system.PANEL_LAUNCHER,
+      "a failure ends in a dialog instead of nothing")
+check("TryExec=/usr/local/bin/kiln-panel" in system.PANEL_DESKTOP,
+      "the menu entry names the binary it starts")
+check("Version=1.0" in system.PANEL_DESKTOP, "the menu entry has a version")
+
+panel_root = tempfile.mkdtemp()
+for name in ("installer", "panel"):
+    os.makedirs(os.path.join(panel_root, name))
+    open(os.path.join(panel_root, name, "__main__.py"), "w").close()
+launcher = Stub()
+with mock.patch.object(system, "MEDIUM_ROOT", panel_root):
+    system.install_panel(launcher, InstallConfig())
+check("usr/local/bin/kiln-panel" in launcher.files,
+      "the launcher is written once the panel is in place")
+check("usr/share/applications/kiln-panel.desktop" in launcher.files,
+      "the menu entry is written once the panel is in place")
+
+os.unlink(os.path.join(panel_root, "panel", "__main__.py"))
+launcher = Stub()
+with mock.patch.object(system, "MEDIUM_ROOT", panel_root):
+    system.install_panel(launcher, InstallConfig())
+check("usr/share/applications/kiln-panel.desktop" not in launcher.files,
+      "no menu entry is written for a panel that did not arrive")
+
+doctor = subprocess.run(
+    [sys.executable, "-m", "panel", "--doctor"],
+    capture_output=True, text=True, timeout=120,
+)
+check(doctor.returncode in (0, 1) and "Display" in (doctor.stdout + doctor.stderr),
+      "the panel can explain itself (rc=%d)" % doctor.returncode)
+
+# -- a closed stdout does not stop the panel ---------------------------------
+quiet = Logger(None)
+with mock.patch("builtins.print", side_effect=OSError(9, "Bad file descriptor")):
+    try:
+        quiet.log("the first line of a panel started from a menu entry")
+        survived = True
+    except OSError:
+        survived = False
+check(survived, "a log line cannot stop the panel when stdout is closed")
 
 
 print("\n%s: %d failure(s)"

@@ -59,7 +59,12 @@ class Logger:
             if len(self._lines) > MAX_LOG_LINES:
                 del self._lines[: len(self._lines) - MAX_LOG_LINES]
             path = self.path
-        print(line, flush=True)
+        try:
+            print(line, flush=True)
+        except OSError:
+            # A desktop entry can start this with stdout closed; writing a log
+            # line must never be what stops the window from opening.
+            pass
         if path:
             try:
                 with open(path, "a", encoding="utf-8") as handle:

@@ -24,19 +24,68 @@ MEDIUM_ROOT = "/opt/kiln-setup"
 
 PANEL_LAUNCHER = """#!/bin/sh
 # Kiln Control Panel launcher.
-PYTHONPATH=/opt/kiln-setup
-export PYTHONPATH
-exec /usr/bin/python3 -m panel "$@"
+#
+# A desktop entry starts this with no terminal, so a failure is invisible unless
+# it is written down and shown.  The panel's output goes to a log the user owns,
+# the working directory is the installation root (so a file in $HOME cannot
+# shadow the package), and a failure ends in a dialog instead of nothing.
+
+ROOT=/opt/kiln-setup
+LOG="${XDG_STATE_HOME:-$HOME/.local/state}/kiln-panel.log"
+
+mkdir -p "$(dirname "$LOG")" 2>/dev/null
+
+reason=""
+if [ ! -d "$ROOT/panel" ]; then
+    reason="the control panel is not installed in $ROOT"
+elif [ ! -x /usr/bin/python3 ]; then
+    reason="python3 is not installed: sudo pacman -S python tk"
+elif ! cd "$ROOT"; then
+    reason="cannot enter $ROOT"
+fi
+
+if [ -z "$reason" ]; then
+    PYTHONPATH=$ROOT
+    export PYTHONPATH
+    /usr/bin/python3 -m panel "$@" >>"$LOG" 2>&1
+    status=$?
+    if [ "$status" -eq 0 ]; then
+        exit 0
+    fi
+    reason="the panel exited with status $status"
+fi
+
+{
+    echo "$(date '+%Y-%m-%d %H:%M:%S') kiln-panel: $reason"
+    tail -n 20 "$LOG" 2>/dev/null
+} >>"$LOG" 2>/dev/null
+
+message="$reason
+
+The log is $LOG
+Run 'kiln-panel --doctor' in a terminal for details."
+
+if command -v zenity >/dev/null 2>&1; then
+    zenity --error --title="Kiln Control Panel" --text="$message" 2>/dev/null
+elif command -v kdialog >/dev/null 2>&1; then
+    kdialog --title "Kiln Control Panel" --error "$message" 2>/dev/null
+fi
+
+echo "$message" >&2
+exit 1
 """
 
 PANEL_DESKTOP = """[Desktop Entry]
+Version=1.0
 Type=Application
 Name=Kiln Control Panel
 GenericName=System Settings
 Comment=Manage software, services, users and network
 Exec=/usr/local/bin/kiln-panel
+TryExec=/usr/local/bin/kiln-panel
 Icon=preferences-system
 Terminal=false
+StartupNotify=false
 Categories=Settings;System;
 Keywords=kiln;pacman;settings;software;
 """
@@ -435,6 +484,22 @@ def install_panel(ctx: Context, cfg: InstallConfig) -> None:
             # A missing panel must not fail an otherwise finished installation.
             ctx.log.log("could not copy the control panel: %s" % error, "warn")
             return
+    missing = [
+        name
+        for name in ("installer", "panel")
+        if not ctx.dry_run
+        and not os.path.isfile(ctx.target_path("opt/kiln-setup/%s/__main__.py" % name))
+    ]
+    if missing:
+        # A menu entry that starts nothing is worse than no entry at all.  The
+        # panel is a Tk window that imports the installer package, so both have
+        # to have arrived before the launcher and the entry are written.
+        ctx.log.log(
+            "the control panel was not installed (%s missing from %s), so no menu "
+            "entry was written" % (", ".join(missing), destination),
+            "warn",
+        )
+        return
     ctx.write_target("usr/local/bin/kiln-panel", PANEL_LAUNCHER, mode=0o755)
     ctx.write_target("usr/share/applications/kiln-panel.desktop", PANEL_DESKTOP, mode=0o644)
 

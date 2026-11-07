@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from . import APP_NAME, __version__
@@ -32,6 +33,50 @@ def _check() -> int:
     return 0
 
 
+def _doctor() -> int:
+    """Say why the panel would not start, before a desktop entry hides it."""
+    problems = []
+    print("%s %s" % (APP_NAME, __version__))
+    print("Interpreter : %s" % sys.executable)
+
+    try:
+        import tkinter  # noqa: F401
+
+        print("Tk          : available")
+    except Exception as error:  # a missing tk is a package, not a crash
+        print("Tk          : missing (%s)" % error)
+        problems.append("Tk is missing: sudo pacman -S tk")
+
+    root = "/opt/kiln-setup"
+    for name in ("panel", "installer"):
+        present = os.path.isdir(os.path.join(root, name))
+        print("%-12s: %s" % (name.capitalize(), "present" if present else "missing"))
+        if not present:
+            problems.append(
+                "%s/%s is missing; install again from the medium, or copy the "
+                "package there" % (root, name)
+            )
+
+    display = os.environ.get("DISPLAY", "") or os.environ.get("WAYLAND_DISPLAY", "")
+    print("Display     : %s" % (display or "none"))
+    if not display:
+        problems.append("there is no display: start it from the desktop session")
+
+    log = os.path.join(
+        os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")),
+        "kiln-panel.log",
+    )
+    print("Log         : %s" % log)
+
+    if problems:
+        print("\nProblems:")
+        for problem in problems:
+            print("  - %s" % problem)
+        return 1
+    print("\nNo problem found: 'kiln-panel' should open the window.")
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="kiln-panel",
@@ -39,15 +84,27 @@ def main(argv=None) -> int:
     )
     parser.add_argument("--kiosk", action="store_true", help="fill the screen")
     parser.add_argument("--check", action="store_true", help="print the system state and exit")
+    parser.add_argument(
+        "--doctor", action="store_true",
+        help="say why the window would not open, then exit",
+    )
     parser.add_argument("--version", action="version", version="kiln-panel " + __version__)
     args = parser.parse_args(argv)
 
+    if args.doctor:
+        return _doctor()
     if args.check:
         return _check()
 
     from .app import Panel
 
-    Panel(kiosk=args.kiosk).mainloop()
+    try:
+        Panel(kiosk=args.kiosk).mainloop()
+    except Exception:  # the launcher shows this instead of an empty desktop
+        import traceback
+
+        traceback.print_exc()
+        return 1
     return 0
 
 
