@@ -14,9 +14,9 @@ iso_version="$(date +%Y.%m.%d)${ISO_REVISION:+-$ISO_REVISION}"
 install_dir="arch"
 buildmodes=('iso')
 # Explicit modes.  'uefi.systemd-boot' alone builds the ESP partition but
-# registers no EFI El Torito image, so a firmware that only reads the boot
-# catalogue (VirtualBox with EFI on, a UEFI CD) reports "no bootable medium".
-bootmodes=('uefi-x64.systemd-boot.esp' 'uefi-x64.systemd-boot.eltorito' \n           'bios.syslinux')
+# registers no EFI El Torito image, so firmware that only reads the boot
+# catalogue (VirtualBox with EFI on, a UEFI CD) reports no bootable medium.
+bootmodes=('uefi-x64.systemd-boot.esp' 'uefi-x64.systemd-boot.eltorito' 'bios.syslinux')
 arch="${ISO_ARCH:-x86_64}"
 pacman_conf="pacman.conf"
 airootfs_image_type="squashfs"
