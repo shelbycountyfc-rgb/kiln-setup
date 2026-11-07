@@ -423,8 +423,10 @@ check(stale_volume.volumes == "partitions",
 
 # -- the medium must carry a UEFI boot entry the firmware can catalogue ------
 profile = open("iso/profile/profiledef.sh", encoding="utf-8").read()
-check("'uefi.systemd-boot'" in profile,
-      "the profile declares the UEFI boot mode (ESP plus loader entry)")
+check("'uefi-x64.systemd-boot.esp'" in profile,
+      "the profile builds the UEFI system partition for USB media")
+check("'uefi-x64.systemd-boot.eltorito'" in profile,
+      "the profile registers a UEFI El Torito image, so EFI firmware can boot the disc")
 check("'bios.syslinux'" in profile,
       "the profile declares the BIOS boot mode")
 
