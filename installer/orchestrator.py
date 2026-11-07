@@ -143,6 +143,19 @@ class Session:
                     "%s is missing from the live medium (%s); boot the Arch installer medium"
                     % (tool, needed_for)
                 )
+        # The formatter depends on the answer, so it cannot be in the static map.
+        formatter = {
+            "ext4": "mkfs.ext4",
+            "btrfs": "mkfs.btrfs",
+            "xfs": "mkfs.xfs",
+            "f2fs": "mkfs.f2fs",
+            "bcachefs": "bcachefs",
+        }.get(self.cfg.root_fs, "")
+        if formatter and not ctx.dry_run and not _has(formatter):
+            raise RuntimeError(
+                "%s is missing from the live medium, so a %s root cannot be formatted"
+                % (formatter, self.cfg.root_fs)
+            )
         for tool, choice in (
             ("cryptsetup", self.cfg.encrypted),
             ("pvcreate", self.cfg.uses_lvm),

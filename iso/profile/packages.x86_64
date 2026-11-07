@@ -52,6 +52,8 @@ dosfstools
 e2fsprogs
 xfsprogs
 btrfs-progs
+f2fs-tools
+bcachefs-tools
 ntfs-3g
 exfatprogs
 util-linux

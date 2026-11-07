@@ -340,6 +340,20 @@ except ValueError as error:
 check(rejected, "an answer file without the root password is rejected by name")
 os.unlink(handle.name)
 
+# -- the medium ships the tools the new filesystems need ---------------------
+medium = {
+    line.strip()
+    for line in open(
+        os.path.join(ROOT, "iso", "profile", "packages.x86_64"), encoding="utf-8"
+    ).read().splitlines()
+    if line.strip() and not line.strip().startswith("#")
+}
+check(
+    {"f2fs-tools", "bcachefs-tools"} <= medium,
+    "the medium ships the new formatters (missing: %r)"
+    % sorted({"f2fs-tools", "bcachefs-tools"} - medium),
+)
+
 
 print("\n%s: %d failure(s)"
       % ("INSTALLER CHECK PASS" if not failures else "INSTALLER CHECK FAIL", len(failures)))
