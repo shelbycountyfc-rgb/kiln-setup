@@ -138,7 +138,27 @@ executed as an argument list through `pkexec` (the polkit prompt) with `sudo -n`
 as the fallback. The panel runs as your user and never asks for the root
 password itself.
 
-### If the menu entry opens nothing
+### If selecting the boot entry returns to the boot menu
+
+That bounce is the firmware refusing the medium and falling through to the next
+device, usually the installed disk's own GRUB.  Check these in order:
+
+- **Secure Boot.** The medium's UEFI loader is systemd-boot, which is not signed;
+  with Secure Boot on the firmware ignores it.  Turn Secure Boot off for the
+  installation, then turn it back on afterwards if you want it.
+- **Boot mode.** The same stick carries a BIOS (syslinux) and a UEFI
+  (systemd-boot) entry.  If the firmware is set to legacy/CSM it uses the first;
+  if it is set to UEFI it uses the second.  Pick the stick explicitly in the
+  boot menu rather than the internal disk.
+- **How it was written.** Write the image to the whole device, not to a
+  partition: run `dd if=kiln-setup-*.iso of=/dev/sdX bs=4M status=progress
+  oflag=sync` as root.  Writing it to `/dev/sdX1` leaves the UEFI system
+  partition that the firmware looks for on the stick out of the picture.
+- **UEFI from a CD or ISO-only VM.** The image registers its UEFI loader as an
+  appended GPT partition, the way a USB stick is read, not as an El Torito
+  entry, so a firmware that only catalogues optical media has nothing to start.
+
+## If the menu entry opens nothing
 
 A desktop entry has no terminal, so a failure there is silent by default. It is
 not silent here: the launcher writes to `~/.local/state/kiln-panel.log`, and a
