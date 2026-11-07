@@ -184,12 +184,17 @@ class Session:
         if not ctx.dry_run and size <= 0:
             raise RuntimeError("cannot read the size of %s" % self.cfg.disk)
 
-        if self.cfg.alongside and not self.cfg.keep_esp:
+        if self.cfg.mode != "erase" and not self.cfg.keep_esp:
             self.cfg.keep_esp = disk.find_esp(self.hw, self.cfg.disk)
-        if self.cfg.alongside and not self.cfg.keep_esp:
+        if self.cfg.mode != "erase" and not self.cfg.keep_esp:
             raise RuntimeError(
-                "no EFI system partition was found to keep; an installation alongside "
-                "another system has to reuse its boot partition"
+                "no EFI system partition was found to keep; %s has to reuse the boot "
+                "partition that is already there"
+                % (
+                    "an installation alongside another system"
+                    if self.cfg.alongside
+                    else "a reinstall"
+                )
             )
         alongside_number = (
             disk.next_partition_number(self.hw, self.cfg.disk) if self.cfg.alongside else 0
@@ -229,6 +234,8 @@ class Session:
             hibernate=self.cfg.hibernate,
             shrink_partition=self.cfg.shrink_partition,
             shrink_gb=self.cfg.shrink_gb,
+            reuse_root=self.cfg.reuse_root,
+            reuse_home=self.cfg.reuse_home,
         )
         self.logger.log("layout: %s" % self.layout.to_dict(), "plan")
         self.logger.log("storage stack: %s" % " -> ".join(self.layout.stack()), "plan")
@@ -258,7 +265,12 @@ class Session:
 
     def _disk(self) -> None:
         assert self.layout is not None
-        if self.cfg.alongside:
+        if self.cfg.reuse:
+            self._substep(
+                "Formatting %s as the new root, and no other partition"
+                % (self.cfg.reuse_root or self.cfg.disk)
+            )
+        elif self.cfg.alongside:
             if self.cfg.shrink_partition:
                 self._substep(
                     "Shrinking %s to %d GiB, then using the space it freed"
@@ -326,6 +338,10 @@ class Session:
         system.accounts(self.ctx, self.cfg)
 
     def _initramfs(self) -> None:
+        assert self.layout is not None
+        # The preset has to exist before mkinitcpio runs: it is what turns the
+        # build into one .efi file instead of a kernel and an initramfs.
+        bootloader.write_uki_presets(self.ctx, self.cfg, self.layout)
         # Signing comes first: the initramfs should carry signed modules.
         hardening.sign_modules(self.ctx, self.cfg)
         self._substep("Running mkinitcpio for the installed kernel(s)")
@@ -341,6 +357,9 @@ class Session:
     def _services(self) -> None:
         hardening.apply(self.ctx, self.cfg, self.layout)
         network.write_profiles(self.ctx, self.cfg)
+        system.configure_snapshots(self.ctx, self.cfg)
+        system.configure_firewall(self.ctx, self.cfg)
+        system.configure_mirrors(self.ctx, self.cfg)
         system.enable_services(self.ctx, self.cfg)
         system.enable_fstrim(self.ctx)
 

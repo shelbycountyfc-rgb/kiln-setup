@@ -112,6 +112,39 @@ def _selftest() -> int:
     return 0
 
 
+def _unattended(path: str, dry_run: bool) -> int:
+    """Install from an answer file: the same pipeline, no window."""
+    from . import answers, hardware
+    from .context import Context, Logger
+    from .orchestrator import Session
+
+    hw = hardware.detect(Context(Logger(None), dry_run=True))
+    if not dry_run:
+        warning = answers.secret_warning(path)
+        if warning:
+            print("REFUSED: %s" % warning)
+            return 2
+    try:
+        data = answers.read(path)
+        device = str(data.get("disk", "")).strip()
+        found = next((item for item in hw.disks if item.device == device), None)
+        config = answers.load(path, disk_size=found.size if found else 0)
+    except ValueError as error:
+        print("ANSWERS REJECTED: %s" % error)
+        return 2
+    session = Session(hw, config, dry_run=dry_run)
+    session.run()
+    for phase in session.status()["phases"]:
+        print("%-10s %s" % (phase["state"], phase["label"]))
+    if session.error:
+        print("INSTALL FAILED: %s" % session.error)
+        if session.note:
+            print(session.note)
+        return 1
+    print("INSTALL COMPLETE: %s" % config.disk)
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="kiln-setup",
@@ -134,9 +167,30 @@ def main(argv=None) -> int:
     )
     parser.add_argument("--check", action="store_true", help="print the detected hardware and layout, then exit")
     parser.add_argument("--selftest", action="store_true", help="run the pipeline against simulated hardware, dry")
+    parser.add_argument(
+        "--answers", metavar="FILE",
+        help="install from a JSON answer file instead of the window",
+    )
+    parser.add_argument(
+        "--write-answers", metavar="FILE", nargs="?", const="kiln-answers.json",
+        help="write a starting point for --answers on this machine, then exit",
+    )
     parser.add_argument("--version", action="version", version="kiln-setup " + __version__)
     args = parser.parse_args(argv)
 
+    if args.write_answers:
+        from . import answers, hardware
+        from .context import Context, Logger
+
+        hw = hardware.detect(Context(Logger(None), dry_run=True))
+        answers.write(args.write_answers, hw)
+        print(
+            "wrote %s; fill in rootPassword and the user password, then run "
+            "--answers %s" % (args.write_answers, args.write_answers)
+        )
+        return 0
+    if args.answers:
+        return _unattended(args.answers, args.dry_run)
     if args.check:
         return _check()
     if args.selftest:

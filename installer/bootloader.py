@@ -81,6 +81,50 @@ def microcode_initrd(ucode: str) -> str:
     return ""
 
 
+def uki_path(cfg: InstallConfig) -> str:
+    """Where mkinitcpio writes the unified kernel image, on the ESP."""
+    return "/boot/EFI/Linux/arch-%s.efi" % cfg.kernel
+
+
+#: A preset that builds one .efi instead of a kernel and an initramfs.
+UKI_PRESET = """\
+# Written by Kiln Setup, an unofficial installer for Arch Linux.
+# The kernel, the initramfs and the command line become one signed file, which
+# systemd-boot finds without a loader entry.
+ALL_config="/etc/mkinitcpio.conf"
+ALL_kver="/boot/vmlinuz-%(kernel)s"
+ALL_default="/boot/EFI/Linux/arch-%(kernel)s.efi"
+PRESETS=('default')
+default_uki="/boot/EFI/Linux/arch-%(kernel)s.efi"
+default_options="--splash /usr/share/systemd/bootctl/splash-arch.bmp"
+"""
+
+
+def write_uki_presets(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
+    """Point mkinitcpio at a unified image, before it builds anything."""
+    if not cfg.uki:
+        return
+    ctx.log.log("writing the unified kernel image preset", "step")
+    ctx.write_target(
+        "etc/kernel/cmdline", "%s quiet\n" % kernel_options(ctx, cfg, layout)
+    )
+    ctx.write_target(
+        "etc/mkinitcpio.d/%s.preset" % cfg.kernel,
+        UKI_PRESET % {"kernel": cfg.kernel},
+        mode=0o644,
+    )
+
+
+def _verify_uki(ctx: Context, cfg: InstallConfig) -> None:
+    path = ctx.target_path(uki_path(cfg).lstrip("/"))
+    if not ctx.dry_run and not os.path.exists(path):
+        raise RuntimeError(
+            "mkinitcpio did not write %s, so systemd-boot would find no kernel. "
+            "Check /etc/mkinitcpio.d/%s.preset in the new system."
+            % (path, cfg.kernel)
+        )
+
+
 def efi_target(cfg: InstallConfig) -> str:
     """The ``grub-install --target`` value for the architecture being installed."""
     return "arm64-efi" if cfg.arch == "aarch64" else "x86_64-efi"
@@ -273,6 +317,8 @@ def sign_boot_files(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
     ctx.chroot("sbctl status | grep -q 'Setup Mode:.*Enabled' || sbctl create-keys", check=False)
     kernel = "/boot/vmlinuz-%s" % cfg.kernel
     targets = [kernel]
+    if cfg.uki:
+        targets.append(uki_path(cfg))
     if layout.encryption == "luks":
         # The initramfs lives on the unencrypted ESP, but it is the file that
         # unlocks the disk: signing it closes the same gap as signing the kernel.
@@ -318,6 +364,15 @@ def shlex_quote(value: str) -> str:
 
 def install_systemd_boot(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
     ctx.chroot("bootctl --esp-path=/boot install")
+    if cfg.uki:
+        # systemd-boot finds EFI/Linux/*.efi by itself; a loader entry would
+        # name a kernel and an initramfs that no longer boot the machine.
+        ctx.write_target(
+            "boot/loader/loader.conf",
+            "timeout  4\nconsole-mode max\neditor   no\n",
+        )
+        _verify_uki(ctx, cfg)
+        return
     ctx.write_target("boot/loader/loader.conf", LOADER_CONF)
     ctx.write_target("boot/loader/entries/arch.conf", entry_text(ctx, cfg, layout))
     _verify_kernel(ctx, cfg)

@@ -8,6 +8,7 @@ keeps its log and unwinds the mounts.
 Run from the arch/ directory: python tests/check-installer.py
 """
 
+import json
 import os
 import sys
 import tempfile
@@ -149,6 +150,195 @@ with mock.patch("os.makedirs", side_effect=AssertionError("a dry run created a d
     dry.run()
 check(not dry.error, "the dry run finished without touching a directory (%r)" % dry.error)
 check(dry.done, "the dry run reached the end")
+
+
+# -- every new choice has a check -------------------------------------------
+f2fs_plan = disk.plan_layout("/dev/sda", 64 * GIB, root_fs="f2fs", mode="erase")
+check(f2fs_plan.root_fs == "f2fs", "f2fs is a planned root filesystem")
+check(
+    packages.filesystem_packages("f2fs") == ["f2fs-tools"],
+    "f2fs brings its own tools: %r" % (packages.filesystem_packages("f2fs"),),
+)
+check(
+    packages.filesystem_packages("bcachefs") == ["bcachefs-tools"],
+    "bcachefs brings its own tools",
+)
+f2fs_ctx = Recorder()
+disk._mkfs(f2fs_ctx, "f2fs", "/dev/sda2", "ARCH", "root")
+check(f2fs_ctx.calls[0][0] == "mkfs.f2fs", "f2fs is formatted with mkfs.f2fs")
+burn_ctx = Recorder()
+disk._mkfs(burn_ctx, "bcachefs", "/dev/sda2", "ARCH", "root")
+check(burn_ctx.calls[0][:2] == ["bcachefs", "format"], "bcachefs is formatted by bcachefs format")
+
+# -- a reinstall formats one partition and keeps the rest --------------------
+reuse = disk.plan_layout(
+    "/dev/sda", 64 * GIB, mode="reuse", reuse_root="/dev/sda2",
+    reuse_home="/dev/sda3", keep_esp="/dev/sda1",
+)
+by_role = {partition.role: partition for partition in reuse.partitions}
+check(by_role["root"].keep is False, "the reinstall root is formatted")
+check(by_role["home"].keep is True, "the kept /home is not formatted")
+check(by_role["efi"].keep is True, "the ESP is reused, not formatted")
+check(
+    any("(kept)" in row[4] for row in reuse.summary()),
+    "the plan says which partitions are kept: %r" % (reuse.summary(),),
+)
+problems = InstallConfig.from_dict({"disk": "/dev/sda", "mode": "reuse"}).disk_errors()
+check(
+    any("reinstall" in problem for problem in problems),
+    "a reinstall without a partition is refused: %r" % (problems,),
+)
+
+# -- removable disks are offered, after the internal ones --------------------
+spare = types.SimpleNamespace(
+    disks=[
+        types.SimpleNamespace(device="/dev/sda", removable=False),
+        types.SimpleNamespace(device="/dev/sdb", removable=True),
+    ]
+)
+order = [found.device for found in hardware.HardwareProfile.installable_disks(spare)]
+check(
+    order == ["/dev/sda", "/dev/sdb"],
+    "removable disks are offered after the internal ones: %r" % (order,),
+)
+
+# -- a unified kernel image needs systemd-boot and UEFI ----------------------
+problems = InstallConfig.from_dict({
+    "disk": "/dev/sda", "efi": True, "bootloader": "grub", "uki": True,
+}).disk_errors()
+check(any("systemd-boot" in problem for problem in problems),
+      "a UKI is refused with GRUB: %r" % (problems,))
+problems = InstallConfig.from_dict({
+    "disk": "/dev/sda", "efi": False, "bootloader": "grub", "uki": True,
+}).disk_errors()
+check(any("UEFI" in problem for problem in problems), "a UKI is refused without UEFI")
+uki_cfg = InstallConfig.from_dict({
+    "disk": "/dev/sda", "efi": True, "bootloader": "systemd-boot", "uki": True,
+    "confirmErase": True,
+})
+check(uki_cfg.uki and not uki_cfg.disk_errors(),
+      "a UKI on systemd-boot is accepted: %r" % (uki_cfg.disk_errors(),))
+
+# -- snapshots need Btrfs, hibernation needs a readable swap -----------------
+problems = InstallConfig.from_dict({"disk": "/dev/sda", "snapshots": True}).disk_errors()
+check(any("Btrfs" in problem for problem in problems), "snapshots are refused on ext4")
+problems = InstallConfig.from_dict({
+    "disk": "/dev/sda", "rootFs": "f2fs", "swap": True, "swapFile": True,
+    "hibernate": True,
+}).disk_errors()
+check(any("swap partition" in problem for problem in problems),
+      "hibernating into a swap file is refused on f2fs: %r" % (problems,))
+check(
+    not InstallConfig.from_dict({
+        "disk": "/dev/sda", "rootFs": "btrfs", "snapshots": True,
+        "confirmErase": True,
+    }).disk_errors(),
+    "snapshots are accepted on Btrfs",
+)
+
+
+class Stub:
+    """A context that records files and commands instead of writing anything."""
+
+    def __init__(self):
+        self.dry_run = False
+        self.target = tempfile.mkdtemp()
+        self.log = Logger(None)
+        self.files = {}
+        self.calls = []
+
+    def run(self, cmd, **kwargs):
+        self.calls.append([str(part) for part in cmd])
+
+    def chroot(self, command, **kwargs):
+        self.calls.append(["chroot", command])
+        return types.SimpleNamespace(returncode=0)
+
+    def target_path(self, relpath):
+        return os.path.join(self.target, relpath)
+
+    def write_target(self, relpath, text, mode=0o644):
+        self.files[relpath] = text
+
+    def read_target(self, relpath):
+        return self.files.get(relpath, "")
+
+
+clock = Stub()
+system.set_localtime(clock, InstallConfig.from_dict({"clockLocal": True}))
+check(any("--localtime" in " ".join(call) for call in clock.calls),
+      "a dual-boot machine keeps the clock in local time: %r" % (clock.calls,))
+clock = Stub()
+system.set_localtime(clock, InstallConfig())
+check(not any("--localtime" in " ".join(call) for call in clock.calls),
+      "the default still stores the clock in UTC")
+
+wall = Stub()
+system.configure_firewall(wall, InstallConfig.from_dict({"firewall": True, "sshd": True}))
+conf = wall.files.get("etc/nftables.conf", "")
+check("policy drop" in conf and "tcp dport 22 accept" in conf,
+      "the filter drops inbound and opens the SSH port that was asked for")
+check(any("nftables" in " ".join(call) for call in wall.calls), "nftables is enabled")
+wall = Stub()
+system.configure_firewall(wall, InstallConfig.from_dict({"firewall": True}))
+check("dport 22" not in wall.files.get("etc/nftables.conf", ""),
+      "no SSH port is opened when the server was not asked for")
+
+shots = Stub()
+system.configure_snapshots(shots, InstallConfig.from_dict({
+    "disk": "/dev/sda", "rootFs": "btrfs", "snapshots": True,
+}))
+check('TIMELINE_CREATE="yes"' in shots.files.get("etc/snapper/configs/root", ""),
+      "a Btrfs root gets snapper's timeline")
+check(any("snapper-timeline.timer" in " ".join(call) for call in shots.calls),
+      "the snapshot timers are enabled")
+
+mirrors = Stub()
+system.configure_mirrors(mirrors, InstallConfig.from_dict({"mirrorCountry": "Germany"}))
+check('--country "Germany"' in mirrors.files.get("etc/xdg/reflector/reflector.conf", ""),
+      "reflector is told which country to use")
+check(any("reflector.timer" in " ".join(call) for call in mirrors.calls),
+      "reflector's timer is enabled")
+
+# -- extra locales and a separate desktop layout -----------------------------
+keyboard = Stub()
+system.configure(keyboard, InstallConfig.from_dict({
+    "disk": "/dev/sda", "locale": "en_US.UTF-8", "locale": "en_US.UTF-8",
+    "locales": ["de_DE.UTF-8"], "keymap": "us", "x11Keymap": "de",
+    "timezone": "UTC", "hostname": "archbox",
+}), profile, None)
+check("de_DE.UTF-8 UTF-8" in keyboard.files.get("etc/locale.gen", ""),
+      "an extra locale is generated beside the main one")
+check('"de"' in keyboard.files.get("etc/X11/xorg.conf.d/00-keyboard.conf", ""),
+      "the desktop layout is written for X11")
+
+# -- an answer file is a whole installation ---------------------------------
+from installer import answers  # noqa: E402
+
+sample = answers.example(profile)
+sample["rootPassword"] = "correcthorse1"
+sample["user"]["password"] = "correcthorse2"
+handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+json.dump(sample, handle)
+handle.close()
+os.chmod(handle.name, 0o600)
+loaded = answers.load(handle.name, disk_size=profile.disks[0].size)
+check(loaded.disk == sample["disk"], "an answer file produces a validated configuration")
+if os.name != "nt":
+    check(answers.secret_warning(handle.name) == "",
+          "a private answer file is accepted")
+    os.chmod(handle.name, 0o644)
+    check("chmod 600" in answers.secret_warning(handle.name),
+          "a world-readable answer file is refused with the command that fixes it")
+sample["rootPassword"] = ""
+json.dump(sample, open(handle.name, "w"))
+try:
+    answers.load(handle.name, disk_size=profile.disks[0].size)
+    rejected = False
+except ValueError as error:
+    rejected = "rootPassword" in str(error)
+check(rejected, "an answer file without the root password is rejected by name")
+os.unlink(handle.name)
 
 
 print("\n%s: %d failure(s)"

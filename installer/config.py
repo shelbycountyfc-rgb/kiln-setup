@@ -75,6 +75,25 @@ class InstallConfig:
     hardening: bool = False
     #: Sign every kernel module with a key this machine keeps.
     signed_modules: bool = False
+    #: One signed .efi holding kernel, initramfs and command line.
+    uki: bool = False
+    #: Keep the hardware clock in local time, the way Windows does.
+    clock_local: bool = False
+    #: A default-deny packet filter, and an SSH server.
+    firewall: bool = False
+    sshd: bool = False
+    #: Btrfs snapshots: a timeline, and a menu entry per snapshot with GRUB.
+    snapshots: bool = False
+    #: Extra locales generated beside the main one.
+    locales: list = field(default_factory=list)
+    #: Desktop layout, when it should differ from the console keymap.
+    x11_keymap: str = ""
+    #: A reinstall: the existing partition to format as the new root, and an
+    #: existing partition to mount as /home without touching it.
+    reuse_root: str = ""
+    reuse_home: str = ""
+    #: The country reflector keeps the mirrorlist in step with.
+    mirror_country: str = ""
     aur: bool = False
     aur_packages: list = field(default_factory=list)
     arch: str = "x86_64"
@@ -150,6 +169,19 @@ class InstallConfig:
             # A locked-down kernel without Secure Boot is a claim the firmware
             # does not back up, so the two go together.
             config.secure_boot = True
+        config.uki = bool(data.get("uki", False))
+        config.clock_local = bool(data.get("clockLocal", False))
+        config.firewall = bool(data.get("firewall", False))
+        config.sshd = bool(data.get("sshd", False))
+        config.snapshots = bool(data.get("snapshots", False))
+        locales = data.get("locales") or []
+        if isinstance(locales, str):
+            locales = [entry for entry in re.split(r"[\s,]+", locales) if entry]
+        config.locales = [str(entry).strip() for entry in locales if str(entry).strip()]
+        config.x11_keymap = str(data.get("x11Keymap", "")).strip()
+        config.reuse_root = str(data.get("reuseRoot", "")).strip()
+        config.reuse_home = str(data.get("reuseHome", "")).strip()
+        config.mirror_country = str(data.get("mirrorCountry", "")).strip()
         config.aur = bool(data.get("aur", False))
         aur_packages = data.get("aurPackages") or []
         if isinstance(aur_packages, str):
@@ -161,6 +193,13 @@ class InstallConfig:
             # file lives on the root instead.
             config.swap = bool(config.swap_file)
             config.separate_home = False
+        if config.mode == "reuse":
+            # The partitions already exist: only a swap file fits, and an array
+            # cannot be built over partitions that were in use a moment ago.
+            config.swap = bool(config.swap_file)
+            config.separate_home = False
+            config.raid = "none"
+            config.raid_disks = []
         config.hostname = str(data.get("hostname", "archlinux")).strip() or "archlinux"
         config.timezone = str(data.get("timezone", "UTC")).strip() or "UTC"
         config.locale = str(data.get("locale", "en_US.UTF-8")).strip() or "en_US.UTF-8"
@@ -217,6 +256,11 @@ class InstallConfig:
     @property
     def alongside(self) -> bool:
         return self.mode == "alongside"
+
+    @property
+    def reuse(self) -> bool:
+        """A reinstall into a partition that already exists."""
+        return self.mode == "reuse"
 
     @property
     def encrypted_boot(self) -> bool:
@@ -302,6 +346,31 @@ class InstallConfig:
                 "No EFI system partition was found to keep. An installation alongside "
                 "another system reuses that system's boot partition."
             )
+        if self.reuse:
+            if not DISK_RE.match(self.reuse_root):
+                errors.append(
+                    "A reinstall has to name the existing partition to format as root."
+                )
+            elif not self.reuse_root.startswith(self.disk):
+                errors.append(
+                    "The partition to reinstall into has to be on the selected disk."
+                )
+            if self.reuse_home:
+                if not DISK_RE.match(self.reuse_home):
+                    errors.append("Invalid partition %r for /home." % self.reuse_home)
+                elif self.reuse_home == self.reuse_root:
+                    errors.append("The root and /home cannot be the same partition.")
+                elif self.reuse_home == self.keep_esp:
+                    errors.append("/home cannot be the EFI system partition.")
+            if self.uses_raid:
+                errors.append(
+                    "A reinstall cannot build an array from a disk already in use."
+                )
+            if self.efi and not self.keep_esp:
+                errors.append(
+                    "No EFI system partition was found to keep. A reinstall reuses "
+                    "the boot partition that is already there."
+                )
         if self.root_fs == "btrfs" and self.separate_home:
             errors.append("Btrfs uses a /home subvolume; a separate /home partition is redundant.")
 
@@ -329,10 +398,10 @@ class InstallConfig:
                 errors.append(
                     "Only GRUB can boot a kernel that lives inside the container."
                 )
-            if self.alongside:
+            if self.mode != "erase":
                 errors.append(
-                    "An installation alongside another system keeps /boot on the EFI "
-                    "partition it reuses."
+                    "Sharing a disk with another system keeps /boot on the EFI "
+                    "partition it reuses, so /boot cannot be encrypted."
                 )
         if self.unlock not in options.UNLOCK:
             errors.append("Unknown unlock method %r." % self.unlock)
@@ -346,11 +415,39 @@ class InstallConfig:
             errors.append("Signing the boot files needs UEFI firmware.")
         if self.secure_boot and not self.efi:
             errors.append("Secure Boot signing needs UEFI firmware.")
-        if self.secure_boot and self.alongside:
+        if self.secure_boot and self.mode != "erase":
             errors.append(
-                "Signing the boot files would take over the other system's boot loader; "
-                "turn Secure Boot signing off when installing alongside."
+                "Signing the boot files would take over the boot loader of the "
+                "system sharing the disk; turn Secure Boot signing off for this mode."
             )
+        if self.uki:
+            if not self.efi:
+                errors.append("A unified kernel image needs UEFI firmware.")
+            elif self.resolved_bootloader != "systemd-boot":
+                errors.append(
+                    "A unified kernel image is built for systemd-boot; choose that "
+                    "boot loader, or turn the unified image off."
+                )
+        if self.snapshots and self.root_fs != "btrfs":
+            errors.append(
+                "Snapshots need a Btrfs root: the subvolumes are what they keep."
+            )
+        if self.hibernate and self.swap_file and self.root_fs in ("f2fs", "bcachefs"):
+            errors.append(
+                "Hibernation from a swap file needs a file system whose layout can "
+                "be read before it is mounted; %s cannot, so use a swap partition."
+                % self.root_fs
+            )
+        if self.arch != "x86_64" and not self.efi:
+            errors.append(
+                "Legacy BIOS is x86 only: an %s installation boots through UEFI."
+                % self.arch
+            )
+        if self.x11_keymap and not KEYMAP_RE.match(self.x11_keymap):
+            errors.append("Invalid desktop keyboard layout.")
+        for extra in self.locales:
+            if not LOCALE_RE.match(extra):
+                errors.append("Invalid locale %r in the extra list." % extra)
         if self.arch not in options.ARCHES:
             errors.append("Unknown architecture %r." % self.arch)
         return errors
@@ -474,6 +571,16 @@ class InstallConfig:
             "secureBoot": self.secure_boot,
             "hardening": self.hardening,
             "signedModules": self.signed_modules,
+            "uki": self.uki,
+            "clockLocal": self.clock_local,
+            "firewall": self.firewall,
+            "sshd": self.sshd,
+            "snapshots": self.snapshots,
+            "locales": list(self.locales),
+            "x11Keymap": self.x11_keymap,
+            "reuseRoot": self.reuse_root,
+            "reuseHome": self.reuse_home,
+            "mirrorCountry": self.mirror_country,
             "aur": self.aur,
             "aurPackages": list(self.aur_packages),
             "arch": self.arch,

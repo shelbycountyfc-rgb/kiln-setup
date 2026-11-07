@@ -120,6 +120,17 @@ class HardwareProfile:
     def internal_disks(self) -> list:
         return [d for d in self.disks if not d.removable]
 
+    def installable_disks(self) -> list:
+        """Every disk that can hold an installation, internal ones first.
+
+        Removable media are offered too: an external SSD, a USB stick and the
+        eMMC or SD card of a small laptop are where Arch gets installed when the
+        machine has no bay of its own.
+        """
+        return [d for d in self.disks if not d.removable] + [
+            d for d in self.disks if d.removable
+        ]
+
     def to_dict(self) -> dict:
         return {
             "cpuModel": self.cpu_model,

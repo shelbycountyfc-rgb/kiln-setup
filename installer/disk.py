@@ -25,7 +25,7 @@ MIB = 1024 ** 2
 #: The guide asks for 23-32 GiB of root space; below this nothing is offered.
 MIN_DISK_BYTES = 20 * GIB
 
-FILESYSTEMS = ("ext4", "btrfs", "xfs")
+FILESYSTEMS = ("ext4", "btrfs", "xfs", "f2fs", "bcachefs")
 
 #: Name -> mountpoint for the Btrfs layout this installer creates.
 BTRFS_SUBVOLUMES = (
@@ -387,6 +387,12 @@ def _plan_member(
     return member
 
 
+def _device_number(device: str) -> int:
+    """/dev/sda3 -> 3, /dev/nvme0n1p2 -> 2; 0 when the path has no number."""
+    match = re.search(r"(\d+)$", device or "")
+    return int(match.group(1)) if match else 0
+
+
 def plan_layout(
     disk: str,
     disk_size: int,
@@ -410,6 +416,8 @@ def plan_layout(
     hibernate: bool = False,
     shrink_partition: str = "",
     shrink_gb: float = 0.0,
+    reuse_root: str = "",
+    reuse_home: str = "",
 ) -> DiskPlan:
     """Work out the whole storage plan before a single sector is written."""
     plan = DiskPlan(
@@ -426,7 +434,11 @@ def plan_layout(
         encrypt_boot=bool(encrypt_boot) and mode == "erase",
         shrink_partition=shrink_partition if mode == "alongside" else "",
         shrink_bytes=int(max(0.0, shrink_gb) * GIB) if mode == "alongside" else 0,
-        subvolumes=BTRFS_SUBVOLUMES if (root_fs == "btrfs" and mode == "erase") else (),
+        subvolumes=(
+            BTRFS_SUBVOLUMES
+            if (root_fs == "btrfs" and mode in ("erase", "reuse"))
+            else ()
+        ),
     )
 
     if swap_file:
@@ -466,6 +478,54 @@ def plan_layout(
                     disk=disk,
                     keep=True,
                 ),
+            )
+        plan.members[0].partitions = list(plan.partitions)
+        return plan
+
+    if mode == "reuse":
+        # Nothing is created and nothing is deleted: one existing partition is
+        # formatted as the new root, and another can be mounted as /home as it is.
+        plan.members = [MemberPlan(disk=disk, size=disk_size)]
+        plan.partitions = []
+        if keep_esp:
+            plan.partitions.append(
+                PartitionPlan(
+                    number=0,
+                    role="efi",
+                    size=0,
+                    fs="vfat",
+                    mountpoint="/boot",
+                    label="EFI",
+                    disk=disk,
+                    keep=True,
+                )
+            )
+        if reuse_root:
+            plan.partitions.append(
+                PartitionPlan(
+                    number=_device_number(reuse_root),
+                    role="root",
+                    size=0,
+                    fs=root_fs,
+                    mountpoint="/",
+                    label="ARCH",
+                    type_code=TYPE_LUKS if encryption == "luks" else TYPE_ROOT,
+                    disk=disk,
+                )
+            )
+        if reuse_home:
+            plan.partitions.append(
+                PartitionPlan(
+                    number=_device_number(reuse_home),
+                    role="home",
+                    size=0,
+                    fs="",
+                    mountpoint="/home",
+                    label="HOME",
+                    type_code=TYPE_HOME,
+                    disk=disk,
+                    keep=True,
+                )
             )
         plan.members[0].partitions = list(plan.partitions)
         return plan
@@ -802,6 +862,11 @@ def _mkfs(ctx: Context, fs: str, device: str, label: str, role: str = "partition
         ctx.run(["mkfs.xfs", "-f", "-L", label or "ARCH", device])
     elif fs == "btrfs":
         ctx.run(["mkfs.btrfs", "-f", "-L", label or "ARCH", device])
+    elif fs == "f2fs":
+        # Wear-leveled and fast on the flash of an eMMC, an SD card or a stick.
+        ctx.run(["mkfs.f2fs", "-f", "-l", label or "ARCH", device])
+    elif fs == "bcachefs":
+        ctx.run(["bcachefs", "format", "--force", "--label", label or "ARCH", device])
     else:
         raise RuntimeError(
             "cannot format %s (%s): unsupported filesystem %r"
@@ -970,10 +1035,47 @@ def _apply_alongside(ctx: Context, plan: DiskPlan, passphrase: str) -> None:
     ctx.mount(plan.keep_esp, ctx.target_path("boot"))
 
 
+def _apply_reuse(ctx: Context, plan: DiskPlan, passphrase: str) -> None:
+    """Format one existing partition and mount everything else as it is."""
+    root = plan.root
+    if root is None:
+        raise RuntimeError("the reinstall layout has no root partition")
+    device = root.device
+    if not ctx.dry_run and not os.path.exists(device):
+        raise RuntimeError(
+            "%s does not exist, so there is nothing to reinstall into" % device
+        )
+    ctx.log.log(
+        "formatting %s as the new root, and no other partition" % device, "step"
+    )
+    _unmount_disk(ctx, plan.disk)
+    ctx.run(["swapoff", device], check=False, quiet=True)
+    ctx.run(["wipefs", "-a", device], check=False, quiet=True)
+    device = _open_luks(ctx, plan, device, passphrase)
+    device = _create_lvm(ctx, plan, device)
+    plan.mapper = device
+    _mkfs(ctx, plan.root_fs, device, "ARCH", "root")
+    _mount_root(ctx, plan, device)
+    _create_swap_file(ctx, plan)
+    plan.root_uuid = ctx.captured(
+        ["blkid", "-s", "UUID", "-o", "value", device], quiet=True
+    ).strip()
+    if plan.keep_esp:
+        ctx.make_dir(ctx.target_path("boot"))
+        ctx.mount(plan.keep_esp, ctx.target_path("boot"))
+    if plan.home is not None:
+        # Kept, not formatted: the files on it are the point of a reinstall.
+        ctx.make_dir(ctx.target_path("home"))
+        ctx.mount(plan.home.device, ctx.target_path("home"))
+
+
 def apply_layout(ctx: Context, plan: DiskPlan, passphrase: str = "") -> None:
     """Create the plan on disk, format it and mount it under the target root."""
     if plan.mode == "alongside":
         _apply_alongside(ctx, plan, passphrase)
+        return
+    if plan.mode == "reuse":
+        _apply_reuse(ctx, plan, passphrase)
         return
 
     ctx.log.log("creating partitions on %s" % ", ".join(m.disk for m in plan.members), "step")

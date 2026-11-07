@@ -59,7 +59,7 @@ docs/ARCHITECTURE.md  how the pieces fit together
 | --- | --- |
 | Welcome | What will happen, plus this machine's CPU, memory, firmware and disks |
 | Hardware | CPU, RAM, firmware/Secure Boot, GPU, every disk and its partitions |
-| Disk | Target disk, filesystem (ext4/btrfs/XFS), swap, EFI partition size, separate `/home`, live layout preview, erase confirmation |
+| Disk | Target disk (internal or removable), filesystem (ext4/Btrfs/XFS/f2fs/bcachefs), swap, EFI partition size, separate `/home`, live layout preview, erase confirmation |
 | System | Hostname, time zone, locale, keyboard, boot loader, root password, daily account, optional Wi-Fi |
 | Software | Desktop, kernel, microcode, **firmware set (matched to this machine or complete)**, **multilib switch**, package picker with categories and repository search |
 | Review | Every choice, the exact partition table and the selected software |
@@ -288,6 +288,58 @@ disk(s) -> mdadm array -> LUKS2 container -> LVM volume group -> ext4/xfs/btrfs 
   install instead of producing a system whose packages and EFI loader do not
   match; the medium has to be built for the architecture it installs
   (`arch` in `profiledef.sh`, `packages.<arch>`).
+
+## Other machines
+
+Most of the choices below exist because a machine is rarely the one the
+installer was developed on.
+
+- **Removable media** — internal disks are listed first, and an external SSD, a
+  USB stick or the eMMC/SD card of a small laptop is offered too, marked on the
+  page. The Disk page warns that taking it out unmounts the running root.
+- **Reinstall into a partition** — the third disk mode formats one existing
+  partition as the new root and mounts another existing partition as `/home`
+  without touching it, so the files in it survive. Every other partition is left
+  alone and `os-prober` keeps the other systems in the menu.
+- **Filesystems** — ext4, Btrfs, XFS, f2fs (the wear-levelled choice for eMMC and
+  SD cards) and bcachefs, each with the tools its root needs. Hibernating into a
+  swap file is refused on f2fs and bcachefs, because their layout cannot be read
+  before they are mounted.
+- **Unified kernel image** — one signed `.efi` holding the kernel, the initramfs
+  and the command line, built by `mkinitcpio` and found by systemd-boot with no
+  loader entry. It needs UEFI and systemd-boot, and it removes the second
+  passphrase prompt an encrypted `/boot` forces out of GRUB.
+- **Dual boot** — "keep the hardware clock in local time" stops Windows from
+  showing the wrong hour and rewriting the clock on every shutdown.
+- **Snapshots** — a Btrfs root gets snapper's timeline for the `@snapshots`
+  subvolume that is already created, and with GRUB a `grub-btrfs` menu entry per
+  snapshot.
+- **Network services** — a default-deny `nftables` filter, and an SSH server
+  that starts at boot. The filter opens port 22 only when the server was asked
+  for.
+- **Mirrors** — when the Network page picked a country, the installed system
+  keeps `reflector.timer` on that country instead of the list it was born with.
+- **Locales and layouts** — extra locales are generated beside the main one, and
+  the desktop keyboard layout can differ from the console layout.
+- **aarch64** — needs UEFI: legacy BIOS is x86 only, and validation says so
+  instead of producing a medium that cannot boot.
+
+### Answer files
+
+Every answer can live in a JSON file, so one installation can be repeated on
+another machine without clicking through the window:
+
+```bash
+python3 -m installer --write-answers kiln-answers.json   # this machine's answers
+# fill in rootPassword and the user password, then:
+python3 -m installer --answers kiln-answers.json --dry-run   # prove it first
+python3 -m installer --answers kiln-answers.json             # install for real
+```
+
+The file is validated exactly like the window's answers, a rejected file names
+every problem at once, and a file that other users can read is refused: it holds
+the root password. `--answers` runs the same pipeline as the window, so the log
+and the failure handling are the same.
 
 ## What is not implemented
 

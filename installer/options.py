@@ -133,6 +133,11 @@ INSTALL_MODES = {
         "Install alongside",
         "Keep the existing system and install into the free space, reusing its EFI partition.",
     ),
+    "reuse": (
+        "Reinstall into a partition",
+        "Keep every other partition, format one existing partition as the new root, "
+        "and mount an existing /home as it is.",
+    ),
 }
 
 #: Full-disk encryption of the root filesystem.
@@ -195,7 +200,10 @@ MIRROR_COUNTRIES = (
 #: Architectures the installer can put on the disk.
 ARCHES = {
     "x86_64": ("x86_64 (64-bit PC)", "The usual desktop and laptop architecture."),
-    "aarch64": ("aarch64 (64-bit ARM)", "ARM machines; needs a medium built for aarch64."),
+    "aarch64": (
+        "aarch64 (64-bit ARM)",
+        "ARM machines that boot through UEFI; needs a medium built for aarch64.",
+    ),
 }
 
 #: Whether packages may be built from the AUR.

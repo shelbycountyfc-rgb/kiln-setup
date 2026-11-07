@@ -481,9 +481,14 @@ class DiskPage(Page):
     def build(self, body: tk.Misc) -> None:
         theme = self.theme
         hw = self.app.hardware
-        candidates = hw.internal_disks() or list(hw.disks)
+        candidates = hw.installable_disks() or list(hw.disks)
 
-        card = Card(body, theme, "Disk", "Internal disks are offered; removable media are not.")
+        card = Card(
+            body, theme, "Disk",
+            "Internal disks come first. A removable disk is offered too, so an "
+            "external SSD, a USB stick or the eMMC of a small laptop can hold the "
+            "installation.",
+        )
         card.pack(fill="x", pady=(0, 16))
         if not candidates:
             Notice(
@@ -602,6 +607,8 @@ class DiskPage(Page):
             raid_members=members,
             keep_esp=self.app.form.get("keepEsp") or "",
             alongside_number=disk_module.next_partition_number(self.app.hardware, device),
+            reuse_root=self.app.form.get("reuseRoot") or "",
+            reuse_home=self.app.form.get("reuseHome") or "",
         )
         header = tk.Frame(self._preview, bg=theme.panel)
         header.pack(fill="x", pady=(0, 6))
@@ -629,6 +636,14 @@ class DiskPage(Page):
             Notice(
                 self._preview, theme,
                 "This disk is smaller than 20 GiB, which is too small for a desktop installation.",
+                kind="warn",
+            ).pack(fill="x", pady=(8, 0))
+        if found.removable:
+            Notice(
+                self._preview, theme,
+                "%s is removable media. Taking it out while the machine runs unmounts "
+                "the root file system, and the machine will not start without it."
+                % device,
                 kind="warn",
             ).pack(fill="x", pady=(8, 0))
         if found.partitions and self.app.form.get("mode", "erase") == "erase":
@@ -698,14 +713,77 @@ class StoragePage(Page):
         self._mode_cards = []
         for index, (key, (label, description)) in enumerate(options.INSTALL_MODES.items()):
             text = description
-            if key == "alongside" and not self._esp:
+            if key in ("alongside", "reuse") and not self._esp:
                 text = "No EFI system partition was found, so there is nothing to keep."
             item = OptionCard(
                 grid, theme, label, text, key, self.mode_var,
                 command=self._mode_changed, width=330,
             )
-            item.grid(row=0, column=index, sticky="ew", padx=(0, 8))
+            item.grid(
+                row=index // 2, column=index % 2, sticky="ew",
+                padx=(0, 8), pady=(0, 8),
+            )
             self._mode_cards.append(item)
+
+        reuse_card = Card(
+            body, theme, "Reinstall into a partition",
+            "Only used by that mode: the root partition is formatted, and a /home "
+            "partition is mounted with the files it already holds.",
+        )
+        reuse_card.pack(fill="x", pady=(0, 16))
+        form = Form(reuse_card.body, theme)
+        form.pack(fill="x")
+        self._reuse_labels = {"No existing partition": ""}
+        self._home_labels = {"No separate /home": ""}
+        partitions = getattr(
+            disk_module.find_disk(hw, form_data.get("disk", "")), "partitions", None
+        ) or []
+        for partition in partitions:
+            if (partition.fstype or "").lower() in ("vfat", "fat32", "fat16"):
+                continue
+            label = "%s  %s  %.0f GiB" % (
+                partition.device,
+                partition.fstype or "?",
+                partition.size / float(1024 ** 3),
+            )
+            self._reuse_labels[label] = partition.device
+            self._home_labels[label] = partition.device
+        holder = form.field(
+            "Partition to format as /",
+            "Its files are replaced; every other partition is left alone.",
+        )
+        self.reuse_label = tk.StringVar(
+            value=next(
+                (
+                    label
+                    for label, device in self._reuse_labels.items()
+                    if device == (form_data.get("reuseRoot") or "")
+                ),
+                "No existing partition",
+            )
+        )
+        ttk.Combobox(
+            holder, textvariable=self.reuse_label,
+            values=list(self._reuse_labels), state="readonly", width=34,
+        ).pack(side="left")
+        holder = form.field(
+            "Keep a /home",
+            "Mounted as it is: the files in it are what survives a reinstall.",
+        )
+        self.home_label = tk.StringVar(
+            value=next(
+                (
+                    label
+                    for label, device in self._home_labels.items()
+                    if device == (form_data.get("reuseHome") or "")
+                ),
+                "No separate /home",
+            )
+        )
+        ttk.Combobox(
+            holder, textvariable=self.home_label,
+            values=list(self._home_labels), state="readonly", width=34,
+        ).pack(side="left")
 
         enc_card = Card(
             body, theme, "Encryption",
@@ -827,6 +905,31 @@ class StoragePage(Page):
             state="readonly", width=26,
         ).pack(side="left")
 
+        extra = Card(
+            body, theme, "Other systems and other machines",
+            "Choices that matter when the disk or the clock is shared with another "
+            "operating system, or when the firmware should find one signed file.",
+        )
+        extra.pack(fill="x", pady=(16, 0))
+        self.clock_local = tk.BooleanVar(value=bool(form_data.get("clockLocal")))
+        ttk.Checkbutton(
+            extra.body,
+            text="Keep the hardware clock in local time, the way Windows does",
+            variable=self.clock_local, style="Panel.TCheckbutton",
+        ).pack(anchor="w")
+        self.snapshots = tk.BooleanVar(value=bool(form_data.get("snapshots")))
+        ttk.Checkbutton(
+            extra.body,
+            text="Take Btrfs snapshots with snapper (Btrfs root only)",
+            variable=self.snapshots, style="Panel.TCheckbutton",
+        ).pack(anchor="w")
+        self.uki = tk.BooleanVar(value=bool(form_data.get("uki")))
+        ttk.Checkbutton(
+            extra.body,
+            text="Build one unified kernel image (UKI) instead of a kernel and initramfs",
+            variable=self.uki, style="Panel.TCheckbutton",
+        ).pack(anchor="w")
+
         deep = Card(
             body, theme, "Unlocking the disk",
             "How the container is opened at boot, and whether the kernel itself is "
@@ -906,7 +1009,7 @@ class StoragePage(Page):
 
     # -- behaviour ---------------------------------------------------------
     def _mode_changed(self) -> None:
-        if self.mode_var.get() == "alongside" and not self._esp:
+        if self.mode_var.get() in ("alongside", "reuse") and not self._esp:
             self.mode_var.set("erase")
         for card in self._mode_cards:
             card.refresh()
@@ -942,7 +1045,16 @@ class StoragePage(Page):
         form["hardening"] = bool(self.hardening.get())
         form["signedModules"] = bool(self.signed_modules.get())
         form["arch"] = self._reverse(self._arch_labels, self.arch_label.get(), "x86_64")
-        form["keepEsp"] = self._esp if form["mode"] == "alongside" else ""
+        form["keepEsp"] = self._esp if form["mode"] != "erase" else ""
+        form["uki"] = bool(self.uki.get())
+        form["snapshots"] = bool(self.snapshots.get())
+        form["clockLocal"] = bool(self.clock_local.get())
+        if form["mode"] == "reuse":
+            form["reuseRoot"] = self._reuse_labels.get(self.reuse_label.get(), "")
+            form["reuseHome"] = self._home_labels.get(self.home_label.get(), "")
+        else:
+            form["reuseRoot"] = ""
+            form["reuseHome"] = ""
         form["encryptBoot"] = bool(self.encrypt_boot.get())
         form["unlock"] = self._reverse(
             self._unlock_labels, self.unlock_label.get(), "passphrase"
@@ -1048,6 +1160,24 @@ class SystemPage(Page):
         self.keymap = tk.StringVar(value=form_data["keymap"])
         ttk.Combobox(holder, textvariable=self.keymap, values=list(options.KEYMAPS), width=24).pack(side="left")
 
+        holder = form.field(
+            "Desktop layout",
+            "Leave empty to use the console layout above; the two are separate "
+            "settings on a machine with a different desktop layout.",
+        )
+        self.x11_keymap = tk.StringVar(value=form_data.get("x11Keymap", ""))
+        ttk.Combobox(
+            holder, textvariable=self.x11_keymap,
+            values=[""] + list(options.KEYMAPS), width=24,
+        ).pack(side="left")
+
+        holder = form.field(
+            "Extra languages",
+            "Space separated; generated beside the main language, for a shared machine.",
+        )
+        self.extra_locales = tk.StringVar(value=" ".join(form_data.get("locales") or []))
+        ttk.Entry(holder, textvariable=self.extra_locales, width=33).pack(side="left")
+
         holder = form.field("Boot loader", options.BOOTLOADERS[form_data["bootloader"]][1])
         labels = {key: value[0] for key, value in options.BOOTLOADERS.items()}
         self.bootloader_label = tk.StringVar(value=labels.get(form_data["bootloader"], "Choose for me"))
@@ -1095,6 +1225,10 @@ class SystemPage(Page):
         form["timezone"] = self.timezone.get().strip()
         form["locale"] = self.locale.get().strip()
         form["keymap"] = self.keymap.get().strip()
+        form["x11Keymap"] = self.x11_keymap.get().strip()
+        form["locales"] = [
+            entry for entry in self.extra_locales.get().split() if entry
+        ]
         reverse = {label: key for key, label in self._bootloader_labels.items()}
         form["bootloader"] = reverse.get(self.bootloader_label.get(), "auto")
         form["kernelParams"] = self.kernel_params.get().strip()
@@ -1230,6 +1364,26 @@ class SoftwarePage(Page):
             aur_card.body, theme,
             "Space-separated names, for example: google-chrome spotify",
         ).pack(fill="x", pady=(6, 0))
+
+        services = Card(
+            body, theme, "Network services",
+            "A firewall closes every port that was not asked for. The SSH server is "
+            "for a machine that is reached over the network.",
+        )
+        services.pack(fill="x", pady=(0, 16))
+        self.firewall = tk.BooleanVar(value=bool(form_data.get("firewall")))
+        ttk.Checkbutton(
+            services.body,
+            text="Firewall: drop inbound connections that were not asked for (nftables)",
+            variable=self.firewall, style="Panel.TCheckbutton",
+            command=self._refresh_selection_count,
+        ).pack(anchor="w")
+        self.sshd = tk.BooleanVar(value=bool(form_data.get("sshd")))
+        ttk.Checkbutton(
+            services.body, text="SSH server: start sshd at boot",
+            variable=self.sshd, style="Panel.TCheckbutton",
+            command=self._refresh_selection_count,
+        ).pack(anchor="w")
 
         picker = Card(
             body, theme, "Packages",
@@ -1422,6 +1576,8 @@ class SoftwarePage(Page):
         form["microcode"] = reverse.get(self.microcode_label.get(), "auto")
         form["firmware"] = self._firmware_choice()
         form["packages"] = sorted(self._selected)
+        form["firewall"] = bool(self.firewall.get())
+        form["sshd"] = bool(self.sshd.get())
 
     def errors(self) -> list:
         problems = []
@@ -1489,6 +1645,9 @@ class SummaryPage(Page):
                 config.disk, found.size, efi=config.efi, root_fs=config.root_fs,
                 swap=config.swap, swap_gb=config.swap_gb, esp_gb=config.esp_gb,
                 separate_home=config.separate_home, ram_bytes=self.app.hardware.ram_bytes,
+                mode=config.mode, encryption=config.encryption,
+                volumes=config.volumes, raid=config.raid, keep_esp=config.keep_esp,
+                reuse_root=config.reuse_root, reuse_home=config.reuse_home,
             )
             layout = Card(self._container, theme, "Partitions on %s" % config.disk)
             layout.pack(fill="x", pady=(0, 16))

@@ -157,6 +157,8 @@ def filesystem_packages(root_fs: str) -> list:
         "ext4": ["e2fsprogs"],
         "xfs": ["xfsprogs"],
         "btrfs": ["btrfs-progs"],
+        "f2fs": ["f2fs-tools"],
+        "bcachefs": ["bcachefs-tools"],
     }.get(root_fs, [])
 
 
@@ -180,9 +182,20 @@ def security_packages(cfg: InstallConfig) -> list:
         # mokutil reports the Secure Boot state the unit checks, tpm2-tools reads
         # the measurements the disk key is bound to.
         packages.extend(["mokutil", "tpm2-tools"])
-    if cfg.alongside:
+    if cfg.mode != "erase":
         # os-prober is what finds the other system and writes its menu entry.
         packages.append("os-prober")
+    if cfg.firewall:
+        packages.append("nftables")
+    if cfg.sshd:
+        packages.append("openssh")
+    if cfg.snapshots:
+        packages.append("snapper")
+        if cfg.resolved_bootloader == "grub":
+            # grub-btrfs adds a menu entry that boots into a snapshot.
+            packages.append("grub-btrfs")
+    if cfg.mirror_country and cfg.mirror_country.lower() != "worldwide":
+        packages.append("reflector")
     return packages
 
 

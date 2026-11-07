@@ -68,18 +68,37 @@ def set_localtime(ctx: Context, cfg: InstallConfig) -> None:
             ctx.target_path("etc/localtime"),
         ]
     )
-    ctx.chroot("hwclock --systohc")
+    # Windows writes the clock as local time and reads it back as local time.
+    # A dual-boot machine that stores UTC shows the wrong hour in Windows, which
+    # then rewrites the RTC on every shutdown, so the choice is ours to make.
+    ctx.chroot("hwclock --systohc%s" % (" --localtime" if cfg.clock_local else ""))
 
 
 def set_locale(ctx: Context, cfg: InstallConfig) -> None:
     current = ctx.read_target("etc/locale.gen")
-    ctx.write_target("etc/locale.gen", _uncomment_locale(current, cfg.locale))
+    for locale in [cfg.locale] + [entry for entry in cfg.locales if entry != cfg.locale]:
+        current = _uncomment_locale(current, locale)
+    ctx.write_target("etc/locale.gen", current)
     ctx.chroot("locale-gen")
     ctx.write_target("etc/locale.conf", "LANG=%s\n" % cfg.locale)
 
 
 def set_keyboard(ctx: Context, cfg: InstallConfig) -> None:
     ctx.write_target("etc/vconsole.conf", "KEYMAP=%s\n" % cfg.keymap)
+    layout = cfg.x11_keymap or cfg.keymap
+    # The console layout and the desktop layout are separate settings: the
+    # desktop reads X11's keyboard file, and localed writes it from localectl.
+    ctx.chroot("localectl set-x11-keymap %s" % shlex.quote(layout), check=False)
+    ctx.write_target(
+        "etc/X11/xorg.conf.d/00-keyboard.conf",
+        "# Written by Kiln Setup, an unofficial installer for Arch Linux.\n"
+        'Section "InputClass"\n'
+        '    Identifier "system-keyboard"\n'
+        '    MatchIsKeyboard "on"\n'
+        '    Option "XkbLayout" "%s"\n'
+        "EndSection\n" % layout,
+        mode=0o644,
+    )
 
 
 def set_hostname(ctx: Context, cfg: InstallConfig) -> None:
@@ -147,6 +166,113 @@ def enable_services(ctx: Context, cfg: InstallConfig) -> None:
 
 def enable_fstrim(ctx: Context) -> None:
     ctx.chroot("systemctl enable fstrim.timer", check=False)
+
+
+#: snapper's timeline for the root subvolume of a fresh Btrfs system.
+SNAPPER_CONFIG = """\
+# Written by Kiln Setup, an unofficial installer for Arch Linux.
+SUBVOLUME="/"
+FSTYPE="btrfs"
+QGROUP=""
+SPACE_LIMIT="0.5"
+FREE_LIMIT="0.2"
+ALLOW_USERS=""
+ALLOW_GROUPS=""
+SYNC_ACL="no"
+BACKGROUND_COMPARISON="yes"
+NUMBER_CLEANUP="yes"
+NUMBER_MIN_AGE="1800"
+NUMBER_LIMIT="50"
+NUMBER_LIMIT_IMPORTANT="10"
+TIMELINE_CREATE="yes"
+TIMELINE_CLEANUP="yes"
+TIMELINE_MIN_AGE="1800"
+TIMELINE_LIMIT_HOURLY="10"
+TIMELINE_LIMIT_DAILY="10"
+TIMELINE_LIMIT_WEEKLY="0"
+TIMELINE_LIMIT_MONTHLY="5"
+TIMELINE_LIMIT_YEARLY="0"
+EMPTY_PRE_POST_CLEANUP="yes"
+EMPTY_PRE_POST_MIN_AGE="1800"
+"""
+
+#: A default-deny filter: loopback, replies and ICMP are the whole allow list.
+NFTABLES_CONF = """\
+#!/usr/bin/nft -f
+# Written by Kiln Setup, an unofficial installer for Arch Linux.
+flush ruleset
+
+table inet filter {
+    chain input {
+        type filter hook input priority filter; policy drop;
+        iif lo accept
+        ct state established,related accept
+        ct state invalid drop
+@@SSH@@        ip protocol icmp accept
+        ip6 nexthdr ipv6-icmp accept
+    }
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+    }
+    chain output {
+        type filter hook output priority filter; policy accept;
+    }
+}
+"""
+
+#: reflector's own configuration, so its timer repeats what the medium did.
+REFLECTOR_CONF = """\
+# Written by Kiln Setup, an unofficial installer for Arch Linux.
+--country {country}
+--protocol https
+--latest 20
+--sort rate
+--save /etc/pacman.d/mirrorlist
+"""
+
+
+def configure_snapshots(ctx: Context, cfg: InstallConfig) -> None:
+    """Give a Btrfs root the timeline that makes subvolumes worth having."""
+    if not cfg.snapshots or cfg.root_fs != "btrfs":
+        return
+    ctx.log.log("configuring Btrfs snapshots in /.snapshots", "step")
+    ctx.write_target("etc/snapper/configs/root", SNAPPER_CONFIG, mode=0o640)
+    ctx.write_target("etc/conf.d/snapper", 'SNAPPER_CONFIGS="root"\n', mode=0o644)
+    ctx.chroot("systemctl enable snapper-timeline.timer", check=False)
+    ctx.chroot("systemctl enable snapper-cleanup.timer", check=False)
+    if cfg.resolved_bootloader == "grub":
+        # grub-btrfsd keeps a menu entry per snapshot in step with grub.cfg.
+        ctx.chroot("systemctl enable grub-btrfsd.service", check=False)
+
+
+def configure_firewall(ctx: Context, cfg: InstallConfig) -> None:
+    """Write a default-deny filter, and open the one port that was asked for."""
+    if not cfg.firewall:
+        if cfg.sshd:
+            ctx.chroot("systemctl enable sshd", check=False)
+        return
+    ctx.log.log("writing a default-deny packet filter", "step")
+    ssh = "        tcp dport 22 accept\n" if cfg.sshd else ""
+    ctx.write_target(
+        "etc/nftables.conf", NFTABLES_CONF.replace("@@SSH@@", ssh), mode=0o644
+    )
+    ctx.chroot("systemctl enable nftables", check=False)
+    if cfg.sshd:
+        ctx.chroot("systemctl enable sshd", check=False)
+
+
+def configure_mirrors(ctx: Context, cfg: InstallConfig) -> None:
+    """Keep the mirrorlist fresh, in the country the medium was told to use."""
+    country = (cfg.mirror_country or "").strip()
+    if not country or country.lower() == "worldwide":
+        return
+    ctx.log.log("keeping the mirrorlist in step with reflector (%s)" % country, "step")
+    ctx.write_target(
+        "etc/xdg/reflector/reflector.conf",
+        REFLECTOR_CONF.replace("{country}", '"%s"' % country),
+        mode=0o644,
+    )
+    ctx.chroot("systemctl enable reflector.timer", check=False)
 
 
 def configure_crypto(ctx: Context, cfg: InstallConfig, layout: DiskPlan | None = None) -> None:
@@ -375,7 +501,24 @@ def stack_description(cfg: InstallConfig) -> str:
 
 
 def summary(cfg: InstallConfig, hw: HardwareProfile) -> list:
-    disk = cfg.disk + (" (alongside the existing system)" if cfg.alongside else "")
+    suffix = ""
+    if cfg.alongside:
+        suffix = " (alongside the existing system)"
+    elif cfg.reuse:
+        suffix = " (reinstalled into %s)" % (cfg.reuse_root or "a partition")
+    disk = cfg.disk + suffix
+    extras = [
+        name
+        for name, on in (
+            ("firewall", cfg.firewall),
+            ("ssh server", cfg.sshd),
+            ("snapshots", cfg.snapshots),
+            ("unified kernel image", cfg.uki),
+            ("local-time clock", cfg.clock_local),
+            ("extra locales", bool(cfg.locales)),
+        )
+        if on
+    ]
     return [
         ("Computer", hw.cpu_model),
         ("Memory", "%d GiB" % max(1, round(hw.ram_bytes / 1024 ** 3))),
@@ -390,6 +533,7 @@ def summary(cfg: InstallConfig, hw: HardwareProfile) -> list:
             cfg.resolved_bootloader + (", signed for Secure Boot" if cfg.secure_boot else ""),
         ),
         ("Multilib", "enabled (32-bit software)" if cfg.multilib else "disabled"),
+        ("Extras", ", ".join(extras) or "none"),
         (
             "Unlock",
             options.UNLOCK.get(cfg.unlock, (cfg.unlock, ""))[0]
