@@ -222,6 +222,12 @@ class Context:
     def target_path(self, relpath: str) -> str:
         return os.path.join(self.target, relpath.lstrip("/"))
 
+    def make_dir(self, path: str) -> str:
+        """Create a directory on the target, unless this is a dry run."""
+        if not self.dry_run:
+            os.makedirs(path, exist_ok=True)
+        return path
+
     def write_target(self, relpath: str, content: str, mode: int = 0o644) -> str:
         path = self.target_path(relpath)
         self.log.log("write %s" % path, "file")

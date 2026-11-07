@@ -644,7 +644,7 @@ def _shrink_filesystem(
         )
     elif kind == "btrfs":
         mountpoint = ctx.target_path(".shrink")
-        os.makedirs(mountpoint, exist_ok=True)
+        ctx.make_dir(mountpoint)
         ctx.mount(device, mountpoint)
         try:
             ctx.run(["btrfs", "filesystem", "resize", str(bytes_wanted), mountpoint])
@@ -768,7 +768,7 @@ def _create_swap_file(ctx: Context, plan: DiskPlan) -> None:
         % (plan.swap_file_bytes // GIB),
         "step",
     )
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    ctx.make_dir(os.path.dirname(path))
     if plan.root_fs == "btrfs":
         # mkswapfile creates it without COW and with the mode swapon wants.
         ctx.run(
@@ -915,7 +915,7 @@ def _create_lvm(ctx: Context, plan: DiskPlan, device: str) -> str:
 
 
 def _mount_root(ctx: Context, plan: DiskPlan, device: str) -> None:
-    os.makedirs(ctx.target, exist_ok=True)
+    ctx.make_dir(ctx.target)
     if not plan.subvolumes:
         ctx.mount(device, ctx.target)
         return
@@ -929,7 +929,7 @@ def _mount_root(ctx: Context, plan: DiskPlan, device: str) -> None:
         if mountpoint == "/":
             continue
         path = ctx.target_path(mountpoint)
-        os.makedirs(path, exist_ok=True)
+        ctx.make_dir(path)
         ctx.mount(device, path, options="subvol=%s,compress=zstd:3,noatime" % name)
 
 
@@ -966,7 +966,7 @@ def _apply_alongside(ctx: Context, plan: DiskPlan, passphrase: str) -> None:
             "no EFI system partition was found to keep; an installation alongside "
             "another system has to reuse its boot partition"
         )
-    os.makedirs(ctx.target_path("boot"), exist_ok=True)
+    ctx.make_dir(ctx.target_path("boot"))
     ctx.mount(plan.keep_esp, ctx.target_path("boot"))
 
 
@@ -1002,10 +1002,10 @@ def apply_layout(ctx: Context, plan: DiskPlan, passphrase: str = "") -> None:
     ).strip()
     if plan.esp is not None:
         boot = "boot/efi" if plan.encrypt_boot else "boot"
-        os.makedirs(ctx.target_path(boot), exist_ok=True)
+        ctx.make_dir(ctx.target_path(boot))
         ctx.mount(plan.esp.device, ctx.target_path(boot))
     if plan.home is not None:
-        os.makedirs(ctx.target_path("home"), exist_ok=True)
+        ctx.make_dir(ctx.target_path("home"))
         ctx.mount(plan.home.device, ctx.target_path("home"))
     if plan.swap is not None:
         ctx.run(["swapon", plan.swap.device])
