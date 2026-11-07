@@ -152,6 +152,10 @@ VOLUMES = {
     "lvm": ("LVM", "A volume group makes resizing, snapshots and extra volumes easier."),
 }
 
+#: What the layers card opens on: no volume group, the filesystem on the
+#: partition.  Named here so the default cannot drift from the menu order.
+DEFAULT_VOLUME = "partitions"
+
 #: mdadm levels the wizard offers, and what each one costs.
 RAID = {
     "none": ("No array", "One disk holds the system."),

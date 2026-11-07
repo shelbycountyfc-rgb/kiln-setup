@@ -815,7 +815,10 @@ class StoragePage(Page):
         volume_labels = {key: value[0] for key, value in options.VOLUMES.items()}
         self._volume_labels = volume_labels
         self.volume_label = tk.StringVar(
-            value=volume_labels.get(form_data.get("volumes", "partitions"), volume_labels["partitions"])
+            value=volume_labels.get(
+                form_data.get("volumes", options.DEFAULT_VOLUME),
+                volume_labels[options.DEFAULT_VOLUME],
+            )
         )
         ttk.Combobox(
             holder, textvariable=self.volume_label, values=list(volume_labels.values()),
@@ -1016,6 +1019,11 @@ class StoragePage(Page):
         self.clear_errors()
 
     def enter(self) -> None:
+        # The menu opens on plain partitions; a value that no longer names a
+        # layer is reset here instead of being carried into the plan.
+        current = self._reverse(self._volume_labels, self.volume_label.get(), "")
+        if current not in self._volume_labels:
+            self.volume_label.set(self._volume_labels[options.DEFAULT_VOLUME])
         for card in self._mode_cards:
             card.refresh()
 

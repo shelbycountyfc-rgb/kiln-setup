@@ -402,6 +402,25 @@ with mock.patch("builtins.print", side_effect=OSError(9, "Bad file descriptor"))
         survived = False
 check(survived, "a log line cannot stop the panel when stdout is closed")
 
+# -- the volume manager opens on plain partitions ---------------------------
+check(options.DEFAULT_VOLUME == "partitions",
+      "plain partitions is the default volume manager")
+check(list(options.VOLUMES)[0] == "partitions",
+      "the volume manager menu opens on plain partitions")
+check(InstallConfig().volumes == "partitions",
+      "a fresh request keeps the filesystem on the partition")
+check(InstallConfig.from_dict({}).uses_lvm is False,
+      "nothing adds a volume group by default")
+plain_plan = disk.plan_layout("/dev/sda", 64 * GIB)
+check(plain_plan.volumes == "partitions" and plain_plan.stack() == ["ext4"],
+      "the plan has no LVM layer unless it was asked for: %r" % (plain_plan.stack(),))
+lvm_plan = disk.plan_layout("/dev/sda", 64 * GIB, volumes="lvm")
+check("LVM (vg0/root)" in lvm_plan.stack(),
+      "LVM is still available when chosen: %r" % (lvm_plan.stack(),))
+stale_volume = InstallConfig.from_dict({"volumes": ""})
+check(stale_volume.volumes == "partitions",
+      "an empty answer falls back to plain partitions: %r" % stale_volume.volumes)
+
 
 print("\n%s: %d failure(s)"
       % ("INSTALLER CHECK PASS" if not failures else "INSTALLER CHECK FAIL", len(failures)))

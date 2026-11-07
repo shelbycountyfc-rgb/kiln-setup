@@ -59,7 +59,7 @@ class InstallConfig:
     # -- storage stack ------------------------------------------------------
     encryption: str = "none"
     luks_passphrase: str = ""
-    volumes: str = "partitions"
+    volumes: str = options.DEFAULT_VOLUME
     raid: str = "none"
     raid_disks: list = field(default_factory=list)
     keep_esp: str = ""
@@ -142,7 +142,10 @@ class InstallConfig:
             config.separate_home = False
         config.encryption = str(data.get("encryption", "none")).strip().lower() or "none"
         config.luks_passphrase = str(data.get("luksPassphrase", ""))
-        config.volumes = str(data.get("volumes", "partitions")).strip().lower() or "partitions"
+        config.volumes = (
+            str(data.get("volumes", options.DEFAULT_VOLUME)).strip().lower()
+            or options.DEFAULT_VOLUME
+        )
         config.raid = str(data.get("raid", "none")).strip().lower() or "none"
         raid_disks = data.get("raidDisks") or []
         if isinstance(raid_disks, str):
