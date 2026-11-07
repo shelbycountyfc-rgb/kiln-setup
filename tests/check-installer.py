@@ -431,6 +431,63 @@ check("'bios.syslinux'" in profile,
       "the profile declares the BIOS boot mode")
 
 
+# -- the ESP has to hold the loader a firmware entry names -------------------
+from installer import bootloader  # noqa: E402
+
+
+def loader_error(context, config):
+    try:
+        bootloader._verify_efi_loader(context, config)
+        return ""
+    except RuntimeError as error:
+        return str(error)
+
+
+esp = tempfile.mkdtemp()
+os.makedirs(os.path.join(esp, "boot"))
+os.makedirs(os.path.join(esp, "boot", "EFI", "BOOT"))
+os.makedirs(os.path.join(esp, "boot", "EFI", "Kiln"))
+open(os.path.join(esp, "boot", "EFI", "Kiln", "grubx64.efi"), "w").close()
+open(os.path.join(esp, "boot", "EFI", "BOOT", "BOOTX64.EFI"), "w").close()
+grub_esp = types.SimpleNamespace(dry_run=False, target=esp, log=Logger(None))
+grub_esp.target_path = lambda relpath: os.path.join(esp, relpath)
+grub_efi = InstallConfig.from_dict({"disk": "/dev/sda", "efi": True, "bootloader": "grub"})
+check(loader_error(grub_esp, grub_efi) == "",
+      "a GRUB ESP that holds its loader passes the check")
+
+os.unlink(os.path.join(esp, "boot", "EFI", "Kiln", "grubx64.efi"))
+message = loader_error(grub_esp, grub_efi)
+check("failed to load Boot0001" in message and "grubx64.efi" in message,
+      "a missing loader fails the install instead of leaving a machine that will "
+      "not boot: %r" % message)
+
+open(os.path.join(esp, "boot", "EFI", "Kiln", "grubx64.efi"), "w").close()
+os.unlink(os.path.join(esp, "boot", "EFI", "BOOT", "BOOTX64.EFI"))
+check(loader_error(grub_esp, grub_efi) == "",
+      "the removable copy is not required for the check to pass")
+check(any("BOOTX64.EFI" in line for line in grub_esp.log.tail(50)),
+      "a missing removable loader is reported: %r" % (grub_esp.log.tail(3),))
+
+recorder = Stub()
+sb_cfg = InstallConfig.from_dict({
+    "disk": "/dev/sda", "efi": True, "bootloader": "systemd-boot",
+})
+with mock.patch.object(bootloader, "_verify_kernel"):
+    with mock.patch.object(bootloader, "_verify_efi_loader"):
+        with mock.patch.object(bootloader, "entry_text", return_value="title Arch"):
+            bootloader.install_systemd_boot(
+                recorder, sb_cfg, disk.plan_layout("/dev/sda", 64 * GIB, efi=True)
+            )
+joined = [" ".join(call) for call in recorder.calls]
+mount_at = next((i for i, line in enumerate(joined) if "efivarfs" in line), None)
+bootctl_at = next((i for i, line in enumerate(joined) if "bootctl" in line), None)
+check(mount_at is not None and bootctl_at is not None and mount_at < bootctl_at,
+      "efivarfs is mounted before bootctl writes the firmware entry: %r" % (joined,))
+check(any("arch.conf" in path for path in recorder.files),
+      "systemd-boot still writes its loader entry")
+
+
+
 print("\n%s: %d failure(s)"
       % ("INSTALLER CHECK PASS" if not failures else "INSTALLER CHECK FAIL", len(failures)))
 sys.exit(1 if failures else 0)

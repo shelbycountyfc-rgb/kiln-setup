@@ -362,20 +362,112 @@ def shlex_quote(value: str) -> str:
     return shlex.quote(value)
 
 
+def efi_loader_paths(cfg: InstallConfig) -> tuple:
+    """``(loader a firmware entry names, removable fallback)``, inside the ESP."""
+    suffix = "aa64" if cfg.arch == "aarch64" else "x64"
+    if cfg.resolved_bootloader == "systemd-boot":
+        primary = "/EFI/systemd/systemd-boot%s.efi" % suffix
+    else:
+        primary = "/EFI/Kiln/grub%s.efi" % suffix
+    return primary, "/EFI/BOOT/BOOT%s.EFI" % suffix.upper()
+
+
+def esp_mount(ctx: Context, cfg: InstallConfig) -> str:
+    """Where the ESP is mounted in the target.
+
+    GRUB with an encrypted /boot keeps the kernel inside the container, so its
+    ESP is mounted at /boot/efi; every other layout uses /boot.
+    """
+    if cfg.resolved_bootloader == "grub" and cfg.encrypt_boot:
+        return ctx.target_path("boot/efi")
+    return ctx.target_path("boot")
+
+
+def _mount_efivarfs(ctx: Context) -> None:
+    """efivarfs has to be writable inside the chroot, or the firmware gets no entry."""
+    ctx.chroot(
+        "mountpoint -q /sys/firmware/efi/efivars || "
+        "mount -t efivarfs efivarfs /sys/firmware/efi/efivars",
+        check=False,
+    )
+
+
+def _unmount_efivarfs(ctx: Context) -> None:
+    ctx.chroot("umount /sys/firmware/efi/efivars 2>/dev/null || true", check=False)
+
+
+def _verify_efi_loader(ctx: Context, cfg: InstallConfig) -> None:
+    """The loader a firmware entry names has to be on the ESP.
+
+    "failed to load Boot0001 ... Not Found" is firmware reading an entry whose
+    file is not where the entry says.  An installation that reports success in
+    that state hands back a machine that cannot boot, so a missing loader fails
+    the installation and a missing removable path is reported.
+    """
+    if ctx.dry_run:
+        return
+    root = esp_mount(ctx, cfg)
+    primary, fallback = efi_loader_paths(cfg)
+    if not os.path.exists(os.path.join(root, primary.lstrip("/"))):
+        raise RuntimeError(
+            "the EFI system partition at %s does not contain %s, so the firmware "
+            "entry for it fails with \"failed to load Boot0001 ... Not Found\" and "
+            "the machine does not boot. The boot loader install did not write what "
+            "it reported." % (root, primary)
+        )
+    if not os.path.exists(os.path.join(root, fallback.lstrip("/"))):
+        ctx.log.log(
+            "the ESP has no %s: firmware with no entry of its own reports "
+            "\"failed to load Boot0001\" and stops instead of starting %s"
+            % (fallback, primary),
+            "warn",
+        )
+
+
+def _ensure_removable_loader(ctx: Context, cfg: InstallConfig, directory: str) -> None:
+    """Give GRUB the removable path too.
+
+    Firmware that keeps a device entry rather than a file entry loads
+    EFI/BOOT/BOOTX64.EFI from the ESP; grub-install writes only its own
+    --bootloader-id directory, so without this copy that entry has no file.
+    """
+    primary, fallback = efi_loader_paths(cfg)
+    root = esp_mount(ctx, cfg)
+    if ctx.dry_run or os.path.exists(os.path.join(root, fallback.lstrip("/"))):
+        return
+    ctx.chroot(
+        "install -d %s/EFI/BOOT && cp %s%s %s%s"
+        % (directory, directory, primary, directory, fallback)
+    )
+    ctx.log.log(
+        "copied %s to %s: firmware without an entry of its own falls back to that "
+        "path, and without it reports no bootable device" % (primary, fallback),
+        "step",
+    )
+UKI_LOADER_CONF = """timeout  4
+console-mode max
+editor   no
+"""
+
+
+
+
 def install_systemd_boot(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
+    # bootctl writes the firmware entry through efivarfs; arch-chroot does not
+    # mount it, so without this the machine keeps booting whatever came first.
+    _mount_efivarfs(ctx)
     ctx.chroot("bootctl --esp-path=/boot install")
     if cfg.uki:
         # systemd-boot finds EFI/Linux/*.efi by itself; a loader entry would
         # name a kernel and an initramfs that no longer boot the machine.
-        ctx.write_target(
-            "boot/loader/loader.conf",
-            "timeout  4\nconsole-mode max\neditor   no\n",
-        )
+        ctx.write_target("boot/loader/loader.conf", UKI_LOADER_CONF)
         _verify_uki(ctx, cfg)
-        return
-    ctx.write_target("boot/loader/loader.conf", LOADER_CONF)
-    ctx.write_target("boot/loader/entries/arch.conf", entry_text(ctx, cfg, layout))
-    _verify_kernel(ctx, cfg)
+    else:
+        ctx.write_target("boot/loader/loader.conf", LOADER_CONF)
+        ctx.write_target("boot/loader/entries/arch.conf", entry_text(ctx, cfg, layout))
+        _verify_kernel(ctx, cfg)
+    _verify_efi_loader(ctx, cfg)
+    _unmount_efivarfs(ctx)
 
 
 def grub_defaults(cfg: InstallConfig, layout: DiskPlan | None = None) -> str:
@@ -458,13 +550,7 @@ def install_grub(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
                 "write its files into the root file system and the machine would not "
                 "boot" % boot
             )
-        # grub-install writes an EFI variable, which needs efivarfs writable
-        # inside the chroot; arch-chroot does not mount it for us.
-        ctx.chroot(
-            "mountpoint -q /sys/firmware/efi/efivars || "
-            "mount -t efivarfs efivarfs /sys/firmware/efi/efivars",
-            check=False,
-        )
+        _mount_efivarfs(ctx)
         # An encrypted /boot needs the modules GRUB uses to open the container
         # and the volume group before it can read its own configuration.
         modules = ""
@@ -475,8 +561,10 @@ def install_grub(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
             "--bootloader-id=Kiln --recheck%s"
             % (efi_target(cfg), directory, modules)
         )
+        _ensure_removable_loader(ctx, cfg, directory)
         ctx.chroot(EFI_BOOT_ORDER, check=False)
-        ctx.chroot("umount /sys/firmware/efi/efivars 2>/dev/null || true", check=False)
+        _verify_efi_loader(ctx, cfg)
+        _unmount_efivarfs(ctx)
     else:
         # Legacy BIOS with an array: GRUB has to be on every member, or the
         # machine only boots from the disk the firmware happens to pick.
