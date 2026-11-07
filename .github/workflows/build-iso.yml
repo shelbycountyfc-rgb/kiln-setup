@@ -17,6 +17,10 @@ on:
         description: "Release tag to create or update (e.g. v1.0.0). Empty: artifact only."
         required: false
         default: ""
+      revision:
+        description: "Revision suffix, e.g. 2 gives -r2. Empty: one higher than any image in out/."
+        required: false
+        default: ""
 
 permissions:
   contents: write
