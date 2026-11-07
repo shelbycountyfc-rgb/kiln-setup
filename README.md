@@ -185,9 +185,9 @@ From any Linux host with Docker:
 Write it to a stick or boot it:
 
 ```bash
-sudo dd if=kiln-setup-<date>-x86_64.iso of=/dev/sdX bs=4M status=progress oflag=sync
+sudo dd if=kiln-setup-<date>-r1-x86_64.iso of=/dev/sdX bs=4M status=progress oflag=sync
 qemu-system-x86_64 -enable-kvm -m 4096 -bios /usr/share/edk2/x64/OVMF.4m.fd \
-  -cdrom kiln-setup-<date>-x86_64.iso
+  -cdrom kiln-setup-<date>-r1-x86_64.iso
 ```
 
 ### Prebuilt image from GitHub
@@ -340,7 +340,7 @@ before using a real machine:
 
 ```bash
 qemu-system-x86_64 -enable-kvm -m 4096 -bios /usr/share/edk2/x64/OVMF.4m.fd \
-  -cdrom kiln-setup-<date>-x86_64.iso
+  -cdrom kiln-setup-<date>-r1-x86_64.iso
 ```
 
 and check, in order: the window appearing, the disk being listed, the layout

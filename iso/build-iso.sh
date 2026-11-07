@@ -30,6 +30,7 @@ WORK_DIR=""
 PROFILE_SRC="$SCRIPT_DIR/profile"
 KEEP=0
 JOBS="$(nproc 2>/dev/null || echo 2)"
+REVISION=""
 
 log()  { printf '\033[1;34m[iso]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[iso]\033[0m %s\n' "$*" >&2; }
@@ -43,6 +44,8 @@ Usage: build-iso.sh [options]
   --work <dir>   build directory (default: mktemp -d)
   --keep         keep the work directory for debugging
   --jobs <n>     parallel compression jobs (default: number of CPUs)
+  --revision <n> revision suffix for this build (default: one higher than the
+                 newest image already in the output directory)
   -h, --help     this message
 EOF
 }
@@ -53,6 +56,7 @@ while [[ $# -gt 0 ]]; do
     --work) WORK_DIR="$2"; shift 2 ;;
     --keep) KEEP=1; shift ;;
     --jobs) JOBS="$2"; shift 2 ;;
+    --revision) REVISION="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown option: $1" ;;
   esac
@@ -226,6 +230,25 @@ done
 # produced, and the build then failed after the image had already been written.
 ISO_NAME="$(sed -n 's/^iso_name="\(.*\)"$/\1/p' "$PROFILE_SRC/profiledef.sh" 2>/dev/null | head -1)"
 [[ -n "$ISO_NAME" ]] || die "cannot read iso_name from $PROFILE_SRC/profiledef.sh"
+
+# Every build is a new revision, and the name says which one: -r1, -r2, ...  A
+# corrected medium that is not distinguishable from the one it replaces is how
+# the wrong image gets booted (an older image of this installer spent a day
+# being chosen over the fixed one).  The next number is one higher than the
+# newest revision already in the output directory, so repeated builds keep
+# counting up; --revision pins it for a rebuild of the same source.
+previous=""
+if [[ -n "$REVISION" ]]; then
+  next="${REVISION#r}"
+  [[ "$next" =~ ^[0-9]+$ ]] || die "--revision needs a number, got: $REVISION"
+else
+  previous="$(find "$OUT_DIR" -maxdepth 1 -name "$ISO_NAME-*-r[0-9]*-*.iso" -printf '%f\n' \
+    2>/dev/null | sed -n 's/.*-r\([0-9][0-9]*\)-[^-]*\.iso$/\1/p' | sort -n | tail -1)"
+  next=$(( ${previous:-0} + 1 ))
+fi
+ISO_REVISION="r$next"
+export ISO_REVISION
+log "revision $ISO_REVISION (newest image already in ${OUT_DIR}: ${previous:-none})"
 
 before="$(find "$OUT_DIR" -maxdepth 1 -name "$ISO_NAME-*.iso" -printf '%f\n' 2>/dev/null | sort || true)"
 
