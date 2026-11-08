@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 
-from . import hardening
+from . import anticheat, hardening
 from .config import InstallConfig
 from .context import Context, uuid_of
 from .disk import DiskPlan
@@ -187,6 +187,9 @@ def kernel_options(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> str:
                 "hibernation",
                 "warn",
             )
+    options.extend(
+        anticheat.kernel_parameters(cfg, getattr(ctx.hardware, "cpu_vendor", ""))
+    )
     options.extend(hardening.kernel_parameters(cfg))
     options.extend(cfg.kernel_param_list)
     return " ".join(options)
@@ -470,7 +473,9 @@ def install_systemd_boot(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> 
     _unmount_efivarfs(ctx)
 
 
-def grub_defaults(cfg: InstallConfig, layout: DiskPlan | None = None) -> str:
+def grub_defaults(
+    cfg: InstallConfig, layout: DiskPlan | None = None, cpu_vendor: str = ""
+) -> str:
     """The ``/etc/default/grub`` this layout needs.
 
     On legacy BIOS there is no EFI system partition, so ``/boot`` lives inside
@@ -527,6 +532,7 @@ def grub_defaults(cfg: InstallConfig, layout: DiskPlan | None = None) -> str:
                 # A swap file: the file system it lives on, and where it starts.
                 extra.append("resume=UUID=%s" % layout.root_uuid)
                 extra.append("resume_offset=%d" % layout.swap_offset)
+        extra.extend(anticheat.kernel_parameters(cfg, cpu_vendor))
         extra.extend(hardening.kernel_parameters(cfg))
         extra.extend(cfg.kernel_param_list)
         if extra:
@@ -538,7 +544,10 @@ def grub_defaults(cfg: InstallConfig, layout: DiskPlan | None = None) -> str:
 
 
 def install_grub(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
-    ctx.write_target("etc/default/grub", grub_defaults(cfg, layout))
+    ctx.write_target(
+        "etc/default/grub",
+        grub_defaults(cfg, layout, getattr(ctx.hardware, "cpu_vendor", "")),
+    )
     if cfg.efi:
         # With an encrypted /boot the ESP is mounted at /boot/efi instead, so the
         # kernel, the initramfs and grub.cfg all sit inside the container.

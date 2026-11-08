@@ -187,6 +187,7 @@ class Installer:
             "firmware": chosen["firmware"],
             "multilib": True,
             "kernelParams": "",
+            "eac": False,
             "hibernate": False,
             "packages": list(self.recommendation.packages),
             "rootPassword": "",

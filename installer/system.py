@@ -592,6 +592,12 @@ def summary(cfg: InstallConfig, hw: HardwareProfile) -> list:
         ("Disk", disk),
         ("Storage", stack_description(cfg)),
         ("Kernel", cfg.kernel_package),
+        (
+            "Anti-cheat",
+            "Epic Games kernel profile (EAC Linux v2)"
+            if getattr(cfg, "eac", False)
+            else "not set up",
+        ),
         ("Desktop", options.DESKTOPS.get(cfg.desktop, (cfg.desktop, ""))[0]),
         (
             "Boot loader",

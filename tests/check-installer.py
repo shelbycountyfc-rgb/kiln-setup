@@ -488,6 +488,48 @@ check(any("arch.conf" in path for path in recorder.files),
 
 
 
+# -- the Epic Games profile writes the kernel side of EAC Linux v2 --------------
+from installer import anticheat, bootloader  # noqa: E402
+
+eac = InstallConfig.from_dict({
+    "disk": "/dev/sda", "efi": True, "secureBoot": False, "eac": True,
+})
+check(eac.eac, "the Epic Games answer is kept")
+check(eac.secure_boot, "the anti-cheat profile turns Secure Boot signing on by itself")
+amd = anticheat.kernel_parameters(eac, "AuthenticAMD")
+check("lockdown=integrity" in amd and "kexec_load_disabled=1" in amd,
+      "lockdown and no kexec reach the command line: %r" % (amd,))
+check("amd_iommu=on" in amd and "intel_iommu=on" not in amd,
+      "the IOMMU parameter matches the CPU: %r" % (amd,))
+check("iommu=pt" not in " ".join(amd), "IOMMU passthrough is left off")
+check(
+    anticheat.kernel_parameters(InstallConfig.from_dict({"disk": "/dev/sda"})) == [],
+    "an install without the profile gets none of these parameters",
+)
+bios = InstallConfig.from_dict({
+    "disk": "/dev/sda", "efi": False, "eac": True,
+}).system_errors()
+check(any("anti-cheat" in problem and "UEFI" in problem for problem in bios),
+      "the profile is refused on BIOS firmware: %r" % (bios,))
+
+eac_layout = types.SimpleNamespace(
+    encryption="none", volumes="partitions", subvolumes=False, swap=None,
+    swap_file=False, swap_offset=0, swap_uuid="", root_uuid="", luks_uuid="",
+    crypt_name="", mapper="", md_device="",
+)
+eac_layout.device = lambda part: "/dev/sda2"
+eac_ctx = types.SimpleNamespace(
+    log=Logger(None), dry_run=False,
+    hardware=types.SimpleNamespace(cpu_vendor="AuthenticAMD"),
+)
+with mock.patch("installer.bootloader.uuid_of", return_value="ROOT-UUID"):
+    entry = bootloader.kernel_options(eac_ctx, eac, eac_layout)
+check("lockdown=integrity" in entry and "amd_iommu=on" in entry,
+      "the systemd-boot entry carries the anti-cheat parameters: %r" % (entry,))
+grub = bootloader.grub_defaults(eac, eac_layout, "AuthenticAMD")
+check("lockdown=integrity" in grub and "amd_iommu=on" in grub,
+      "the GRUB default line carries the anti-cheat parameters")
+
 print("\n%s: %d failure(s)"
       % ("INSTALLER CHECK PASS" if not failures else "INSTALLER CHECK FAIL", len(failures)))
 sys.exit(1 if failures else 0)

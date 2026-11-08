@@ -1210,6 +1210,18 @@ class SystemPage(Page):
         self.kernel_params = tk.StringVar(value=form_data.get("kernelParams", ""))
         ttk.Entry(holder, textvariable=self.kernel_params, width=46).pack(side="left")
         holder = form.field(
+            "Epic Games (EAC)",
+            "Epic's Linux anti-cheat (EAC Linux v2) reads Secure Boot, a signed "
+            "kernel, a TPM 2.0 measured boot, the IOMMU and kernel lockdown. This "
+            "adds the kernel parameters it needs and turns Secure Boot signing on; "
+            "Fortnite itself still has to be released for Linux.",
+        )
+        self.eac = tk.BooleanVar(value=bool(form_data.get("eac")))
+        ttk.Checkbutton(
+            holder, text="Set up the kernel for Easy Anti-Cheat games",
+            variable=self.eac, style="Panel.TCheckbutton",
+        ).pack(anchor="w")
+        holder = form.field(
             "Hibernation",
             "Writes the contents of memory to swap, a partition or a file on the "
             "root, and resumes from it.",
@@ -1240,6 +1252,7 @@ class SystemPage(Page):
         reverse = {label: key for key, label in self._bootloader_labels.items()}
         form["bootloader"] = reverse.get(self.bootloader_label.get(), "auto")
         form["kernelParams"] = self.kernel_params.get().strip()
+        form["eac"] = bool(self.eac.get())
         form["hibernate"] = bool(self.hibernate.get())
         form["rootPassword"] = self.root_password.get()
         name = self.username.get().strip()
