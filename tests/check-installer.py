@@ -530,6 +530,14 @@ grub = bootloader.grub_defaults(eac, eac_layout, "AuthenticAMD")
 check("lockdown=integrity" in grub and "amd_iommu=on" in grub,
       "the GRUB default line carries the anti-cheat parameters")
 
+from installer import packages as package_layer  # noqa: E402
+
+check(
+    "ttf-dejavu" in package_layer.required_packages(InstallConfig()),
+    "every install carries a font: the panel's Tk window cannot draw a label "
+    "without one, and the window then exits 1 with a bare TclError",
+)
+
 print("\n%s: %d failure(s)"
       % ("INSTALLER CHECK PASS" if not failures else "INSTALLER CHECK FAIL", len(failures)))
 sys.exit(1 if failures else 0)

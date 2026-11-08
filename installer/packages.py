@@ -263,6 +263,11 @@ def required_packages(cfg: InstallConfig, hardware=None) -> list:
     packages += storage_packages(cfg)
     packages += security_packages(cfg)
     packages.append("networkmanager")
+    # The control panel is a Tk window.  Without any font installed Tk
+    # cannot allocate even one label, so the window raises before it draws
+    # and the launcher reports "the panel exited with status 1".  A desktop
+    # profile brings fonts of its own; a minimal install brings none.
+    packages.append("ttf-dejavu")
     microcode = microcode_package(cfg, hardware)
     if microcode:
         packages.append(microcode)

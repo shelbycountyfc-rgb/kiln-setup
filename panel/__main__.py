@@ -33,6 +33,34 @@ def _check() -> int:
     return 0
 
 
+def _fonts():
+    """Ask Tk for a font.  Without one, no window can draw anything at all."""
+    try:
+        import tkinter
+        from tkinter import font as tkfont
+    except Exception as error:  # a missing Tk is already reported above
+        return "unknown (%s)" % error, None
+    try:
+        root = tkinter.Tk()
+    except Exception as error:
+        return "unknown (%s)" % error, None
+    try:
+        root.withdraw()
+        family = tkfont.nametofont("TkDefaultFont").actual("family")
+        tkfont.Font(root=root, family=family, size=10).measure("Kiln")
+        return "%s (%d families)" % (family, len(tkfont.families(root))), None
+    except Exception as error:
+        return "none (%s)" % error, (
+            "Tk cannot allocate a font, so the window cannot draw: "
+            "sudo pacman -S ttf-dejavu  (%s)" % error
+        )
+    finally:
+        try:
+            root.destroy()
+        except Exception:
+            pass
+
+
 def _doctor() -> int:
     """Say why the panel would not start, before a desktop entry hides it."""
     problems = []
@@ -61,6 +89,11 @@ def _doctor() -> int:
     print("Display     : %s" % (display or "none"))
     if not display:
         problems.append("there is no display: start it from the desktop session")
+
+    fonts, font_problem = _fonts()
+    print("Fonts       : %s" % fonts)
+    if font_problem:
+        problems.append(font_problem)
 
     log = os.path.join(
         os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")),
@@ -100,10 +133,17 @@ def main(argv=None) -> int:
 
     try:
         Panel(kiosk=args.kiosk).mainloop()
-    except Exception:  # the launcher shows this instead of an empty desktop
+    except Exception as error:  # the launcher shows this instead of an empty desktop
         import traceback
 
         traceback.print_exc()
+        # The traceback lands in the log; this is the line the dialog shows.
+        print(
+            "kiln-panel: the window could not open (%s)\n"
+            "Run 'kiln-panel --doctor': it names the missing piece and the "
+            "package that provides it." % error,
+            file=sys.stderr,
+        )
         return 1
     return 0
 
