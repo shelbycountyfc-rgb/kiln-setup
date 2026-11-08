@@ -538,6 +538,21 @@ check(
     "without one, and the window then exits 1 with a bare TclError",
 )
 
+from installer import system as system_layer  # noqa: E402
+
+check(
+    "${detail}" in system_layer.PANEL_LAUNCHER,
+    "the launcher puts the panel's last log line in the dialog, so a failure "
+    "names the error instead of only the exit status",
+)
+
+check(
+    "--doctor|--check|--version" in system_layer.PANEL_LAUNCHER
+    and "exec /usr/bin/python3 -m panel" in system_layer.PANEL_LAUNCHER,
+    "a terminal request skips the log, so 'kiln-panel --doctor' prints where it "
+    "was typed instead of hiding the diagnosis in the log",
+)
+
 print("\n%s: %d failure(s)"
       % ("INSTALLER CHECK PASS" if not failures else "INSTALLER CHECK FAIL", len(failures)))
 sys.exit(1 if failures else 0)

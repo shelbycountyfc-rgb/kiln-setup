@@ -35,6 +35,33 @@ LOG="${XDG_STATE_HOME:-$HOME/.local/state}/kiln-panel.log"
 
 mkdir -p "$(dirname "$LOG")" 2>/dev/null
 
+# A terminal request is not the desktop entry.  --doctor exists to be read, so
+# it must print where it was typed; hiding it in the log (and then reporting
+# "exited with status 1" for the doctor's own findings) is how a diagnosis gets
+# lost.  These go straight to python with the terminal attached.
+case "${1:-}" in
+    --doctor|--check|--version|-h|--help)
+        if [ ! -d "$ROOT/panel" ]; then
+            echo "kiln-panel: the control panel is not installed in $ROOT" >&2
+            exit 1
+        fi
+        if [ ! -x /usr/bin/python3 ]; then
+            echo "kiln-panel: python3 is not installed: sudo pacman -S python tk" >&2
+            exit 1
+        fi
+        cd "$ROOT" || exit 1
+        PYTHONPATH=$ROOT
+        export PYTHONPATH
+        exec /usr/bin/python3 -m panel "$@"
+        ;;
+esac
+
+# Only this run's output may be quoted back: the log holds every earlier one.
+before=0
+if [ -f "$LOG" ]; then
+    before=$(wc -c <"$LOG" 2>/dev/null || echo 0)
+fi
+
 reason=""
 if [ ! -d "$ROOT/panel" ]; then
     reason="the control panel is not installed in $ROOT"
@@ -53,6 +80,10 @@ if [ -z "$reason" ]; then
         exit 0
     fi
     reason="the panel exited with status $status"
+    # "Exited with status 1" tells nobody anything: the last line of the
+    # traceback is the whole diagnosis, so it goes in the dialog.
+    detail=$(tail -c +$((before + 1)) "$LOG" 2>/dev/null | grep '^kiln-panel: ' | tail -n 1)
+    [ -n "$detail" ] || detail=$(tail -c +$((before + 1)) "$LOG" 2>/dev/null | sed -n '$p')
 fi
 
 {
@@ -61,6 +92,8 @@ fi
 } >>"$LOG" 2>/dev/null
 
 message="$reason
+
+${detail}
 
 The log is $LOG
 Run 'kiln-panel --doctor' in a terminal for details."
