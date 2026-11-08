@@ -338,7 +338,8 @@ modules signed with well-known keys, Secure Boot, a measured boot from a TPM 2.0
 the IOMMU on without passthrough, `lockdown=integrity`, the BPF LSM active, and
 kexec disabled.
 
-The System page switch **Set up the kernel for Easy Anti-Cheat games** covers the
+The System page switch **Mark this install for Epic Games (Easy Anti-Cheat)**, in
+the **Epic Games (Fortnite)** card, covers the
 kernel side of that list.  It writes `lockdown=integrity`, `kexec_load_disabled=1`
 and `intel_iommu=on` or `amd_iommu=on` (matched to this CPU) into the boot entry,
 GRUB's default line included, and turns Secure Boot signing on because EAC refuses

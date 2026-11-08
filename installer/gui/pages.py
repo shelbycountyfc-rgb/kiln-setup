@@ -1210,15 +1210,16 @@ class SystemPage(Page):
         self.kernel_params = tk.StringVar(value=form_data.get("kernelParams", ""))
         ttk.Entry(holder, textvariable=self.kernel_params, width=46).pack(side="left")
         holder = form.field(
-            "Epic Games (EAC)",
+            "Epic Games (Fortnite)",
             "Epic's Linux anti-cheat (EAC Linux v2) reads Secure Boot, a signed "
             "kernel, a TPM 2.0 measured boot, the IOMMU and kernel lockdown. This "
-            "adds the kernel parameters it needs and turns Secure Boot signing on; "
-            "Fortnite itself still has to be released for Linux.",
+            "marks the install as the Epic Games profile: it adds the kernel "
+            "parameters EAC needs and turns Secure Boot signing on. Fortnite itself "
+            "still has to be released for Linux.",
         )
         self.eac = tk.BooleanVar(value=bool(form_data.get("eac")))
         ttk.Checkbutton(
-            holder, text="Set up the kernel for Easy Anti-Cheat games",
+            holder, text="Mark this install for Epic Games (Easy Anti-Cheat)",
             variable=self.eac, style="Panel.TCheckbutton",
         ).pack(anchor="w")
         holder = form.field(

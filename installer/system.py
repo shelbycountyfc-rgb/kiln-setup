@@ -593,8 +593,8 @@ def summary(cfg: InstallConfig, hw: HardwareProfile) -> list:
         ("Storage", stack_description(cfg)),
         ("Kernel", cfg.kernel_package),
         (
-            "Anti-cheat",
-            "Epic Games kernel profile (EAC Linux v2)"
+            "Epic Games",
+            "Easy Anti-Cheat kernel profile (EAC Linux v2)"
             if getattr(cfg, "eac", False)
             else "not set up",
         ),
