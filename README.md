@@ -146,6 +146,13 @@ device, usually the installed disk's own GRUB.  Check these in order:
 - **Secure Boot.** The medium's UEFI loader is systemd-boot, which is not signed;
   with Secure Boot on the firmware ignores it.  Turn Secure Boot off for the
   installation, then turn it back on afterwards if you want it.
+- **`Access Denied` from `BdsDxe`.** That message is Secure Boot refusing the
+  unsigned loader, and it differs from `Not Found`, which means the firmware had
+  no file to load at all.  A VirtualBox VM can keep Secure Boot on even when its
+  firmware is EFI, and it is not a `VBoxManage modifyvm` switch: power the VM
+  off and run `VBoxManage modifynvram <vm> secureboot --disable` (in the GUI it
+  is Settings -> System -> Motherboard -> Secure Boot).  The VM must be powered
+  off — a VM the GUI has open is locked for a session and the command fails.
 - **Boot mode.** The same stick carries a BIOS (syslinux) and a UEFI
   (systemd-boot) entry.  If the firmware is set to legacy/CSM it uses the first;
   if it is set to UEFI it uses the second.  Pick the stick explicitly in the
