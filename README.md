@@ -59,7 +59,7 @@ docs/ARCHITECTURE.md  how the pieces fit together
 | --- | --- |
 | Welcome | What will happen, plus this machine's CPU, memory, firmware and disks |
 | Hardware | CPU, RAM, firmware/Secure Boot, GPU, every disk and its partitions |
-| Disk | Target disk (internal or removable), filesystem (ext4/Btrfs/XFS/f2fs/bcachefs), swap, EFI partition size, separate `/home`, live layout preview, erase confirmation |
+| Disk | Target disk (internal or removable), filesystem (ext4/Btrfs/XFS/f2fs/bcachefs), optional swap, EFI partition size, separate `/home`, live layout preview, erase confirmation |
 | System | Hostname, time zone, locale, keyboard, boot loader, root password, daily account, optional Wi-Fi |
 | Software | Desktop, kernel, microcode, **firmware set (matched to this machine or complete)**, **multilib switch**, package picker with categories and repository search |
 | Review | Every choice, the exact partition table and the selected software |

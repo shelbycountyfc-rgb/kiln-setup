@@ -441,7 +441,7 @@ def plan_layout(
         ),
     )
 
-    if swap_file:
+    if swap and swap_file:
         # The file is made once the root is mounted; its size is worked out here
         # so the preview and the plan agree.
         wanted = int(swap_gb * GIB) if swap_gb else recommended_swap(ram_bytes)

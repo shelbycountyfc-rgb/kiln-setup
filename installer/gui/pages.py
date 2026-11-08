@@ -527,21 +527,23 @@ class DiskPage(Page):
         self.swap = tk.BooleanVar(value=self.app.form["swap"])
         ttk.Checkbutton(
             holder, text="Create swap", variable=self.swap,
-            style="Panel.TCheckbutton", command=self._refresh_preview,
+            style="Panel.TCheckbutton", command=self._sync_swap,
         ).pack(anchor="w")
         self.swap_kind = tk.StringVar(
             value="Swap file" if self.app.form.get("swapFile") else "Swap partition"
         )
-        ttk.Combobox(
+        self._swap_kind_box = ttk.Combobox(
             holder, textvariable=self.swap_kind, values=["Swap partition", "Swap file"],
             state="readonly", width=16,
-        ).pack(anchor="w", pady=(4, 0))
+        )
+        self._swap_kind_box.pack(anchor="w", pady=(4, 0))
         self.swap_kind.trace_add("write", lambda *_: self._refresh_preview())
         self.swapgb = tk.StringVar(value="%.1f" % (self.app.form["swapGb"] or 8.0))
-        ttk.Spinbox(
+        self._swap_gb_box = ttk.Spinbox(
             holder, textvariable=self.swapgb, from_=0, to=2048, increment=0.5,
             width=8, command=self._refresh_preview,
-        ).pack(anchor="w", pady=(4, 0))
+        )
+        self._swap_gb_box.pack(anchor="w", pady=(4, 0))
         self.swapgb.trace_add("write", lambda *_: self._refresh_preview())
 
         holder = form.field("Separate /home", "Keeps documents on their own partition, so a reinstall can leave them alone.")
@@ -563,6 +565,7 @@ class DiskPage(Page):
         self._preview = tk.Frame(preview.body, bg=theme.panel)
         self._preview.pack(fill="x")
         self._refresh_preview()
+        self._sync_swap()
 
         danger = Card(body, theme, "Confirm", "This cannot be undone.")
         danger.pack(fill="x")
@@ -572,6 +575,13 @@ class DiskPage(Page):
             text="I understand that every partition and file on this disk will be destroyed.",
             variable=self.confirm, style="Panel.TCheckbutton",
         ).pack(anchor="w")
+
+    def _sync_swap(self) -> None:
+        """Swap off: the kind and the size describe nothing, so they go dead."""
+        on = bool(self.swap.get())
+        self._swap_kind_box.configure(state="readonly" if on else "disabled")
+        self._swap_gb_box.configure(state="normal" if on else "disabled")
+        self._refresh_preview()
 
     def _refresh_preview(self) -> None:
         theme = self.theme
@@ -598,7 +608,7 @@ class DiskPage(Page):
         plan = disk_module.plan_layout(
             device, found.size, efi=self.app.form["efi"], root_fs=self.rootfs.get(),
             swap=self.swap.get(), swap_gb=swap_gb or None, esp_gb=esp_gb,
-            swap_file=self.swap_kind.get() == "Swap file",
+            swap_file=bool(self.swap.get()) and self.swap_kind.get() == "Swap file",
             separate_home=self.home.get(), ram_bytes=self.app.hardware.ram_bytes,
             mode=self.app.form.get("mode", "erase"),
             encryption=self.app.form.get("encryption", "none"),
@@ -663,7 +673,7 @@ class DiskPage(Page):
         form = self.app.form
         form["rootFs"] = self.rootfs.get()
         form["swap"] = bool(self.swap.get())
-        form["swapFile"] = self.swap_kind.get() == "Swap file"
+        form["swapFile"] = bool(self.swap.get()) and self.swap_kind.get() == "Swap file"
         try:
             form["swapGb"] = float(self.swapgb.get())
         except ValueError:

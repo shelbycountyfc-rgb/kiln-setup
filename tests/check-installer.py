@@ -553,6 +553,26 @@ check(
     "was typed instead of hiding the diagnosis in the log",
 )
 
+no_swap = disk.plan_layout("/dev/sda", 64 * GIB, swap=False, swap_file=True)
+check(
+    no_swap.swap is None and not no_swap.swap_file_bytes and not no_swap.swap_file,
+    "swap turned off creates no swap partition and no swap file, even when the "
+    "kind chosen earlier was a file",
+)
+cfg_no_swap = InstallConfig.from_dict({
+    "disk": "/dev/sda", "confirmErase": True, "swap": False, "swapFile": True,
+    "swapGb": 8,
+})
+check(
+    not cfg_no_swap.swap and not cfg_no_swap.swap_file,
+    "a swap file does not outlive turning swap off: %r" % (cfg_no_swap.to_public(),),
+)
+check(
+    not any("swap" in problem.lower() for problem in cfg_no_swap.disk_errors(64 * GIB)),
+    "turning swap off leaves the disk answers valid: %r"
+    % (cfg_no_swap.disk_errors(64 * GIB),),
+)
+
 print("\n%s: %d failure(s)"
       % ("INSTALLER CHECK PASS" if not failures else "INSTALLER CHECK FAIL", len(failures)))
 sys.exit(1 if failures else 0)

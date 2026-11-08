@@ -131,7 +131,10 @@ class InstallConfig:
         config.bootloader = str(data.get("bootloader", "auto")).strip().lower() or "auto"
         config.root_fs = str(data.get("rootFs", "ext4")).strip().lower() or "ext4"
         config.swap = bool(data.get("swap", True))
-        config.swap_file = bool(data.get("swapFile", False))
+        # A swap file is a kind of swap, not a replacement for it: with swap
+        # turned off there is nothing for the file to be.  The choice stays in
+        # the form, so ticking swap again brings the file back.
+        config.swap_file = bool(data.get("swapFile", False)) and config.swap
         swap_gb = data.get("swapGb")
         try:
             config.swap_gb = None if swap_gb in (None, "", 0, "0", 0.0) else float(swap_gb)
