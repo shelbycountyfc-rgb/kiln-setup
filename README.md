@@ -161,6 +161,26 @@ device, usually the installed disk's own GRUB.  Check these in order:
   partition: run `dd if=kiln-setup-*.iso of=/dev/sdX bs=4M status=progress
   oflag=sync` as root.  Writing it to `/dev/sdX1` leaves the UEFI system
   partition that the firmware looks for on the stick out of the picture.
+- **`edd error ... reading sector N` then `failed to load com32 file ...`.**
+  That is syslinux, so it is the legacy-BIOS path, and it means the firmware
+  could not read the stick where that file sits.  The sector in the message is
+  the file's own position inside the image, so the image is not the suspect:
+  the medium is.  The usual causes are a write that stopped before the end, a
+  stick the firmware loses part-way through, and a port or hub the BIOS reads
+  badly.  Write the image again with the `dd` line above, then prove every byte
+  arrived before booting:
+
+  ```bash
+  sudo cmp -n "$(stat -c %s kiln-setup-*.iso)" kiln-setup-*.iso /dev/sdX
+  ```
+
+  Silence means the stick matches the image; `differ` or `EOF` means it does
+  not, and the stick has to be written again.  If a rewritten stick still
+  fails there, try another port (USB 2.0 on an older machine) or another stick
+  and boot the medium as UEFI instead, which uses systemd-boot and never reads
+  syslinux modules.  The BIOS entry called "Boot existing OS" is `chain.c32`
+  too and is not the installer: the entry to pick is "Kiln Setup - install
+  Arch Linux".
 - **"No bootable option or device was found".** That is EFI firmware that only
   reads the boot catalogue finding no EFI entry.  Builds from revision 3 on
   register a UEFI El Torito image as well as the ESP partition, so this image

@@ -333,9 +333,14 @@ shopt -u nullglob
 
 cat <<EOF
 
-Write it to a USB stick with:
+Write it to a USB stick, all of it, then check what arrived:
   sudo dd if=$(basename "$IMAGE") of=/dev/sdX bs=4M status=progress oflag=sync
+  sudo cmp -n $(stat -c %s "$IMAGE") $(basename "$IMAGE") /dev/sdX   # silence means it matches
 
-or boot it directly:
+A stick that was written only part of the way boots into syslinux on an old
+machine and then fails with "edd error ... reading sector" and "failed to
+load com32 file", which looks like a broken image and is a broken write.
+
+Or boot the image directly, without a stick:
   qemu-system-x86_64 -enable-kvm -m 4096 -bios /usr/share/edk2/x64/OVMF.4m.fd -cdrom $(basename "$IMAGE")
 EOF
