@@ -8,6 +8,7 @@ in one place.
 
 from __future__ import annotations
 
+import re
 import tkinter as tk
 from tkinter import font as tkfont
 from tkinter import ttk
@@ -33,6 +34,18 @@ WARN = "#9d5d00"
 FAIL = "#c42b1c"
 MONO_BG = "#0c0c0c"
 MONO_FG = "#cccccc"
+
+#: Every colour the window draws with.  A palette entry that is not a
+#: #rrggbb value reaches Tk as a colour name, and Tk answers with
+#: "unknown color name ..." from somewhere inside a widget rather than from
+#: the file that holds the value, so the names are checked explicitly.
+COLOUR_NAMES = (
+    "ink", "ink_soft", "muted", "faint", "line", "panel", "canvas", "footer",
+    "accent", "accent_hover", "accent_press", "accent_soft", "rail", "rail_line",
+    "rail_text", "rail_faint", "ok", "warn", "fail", "mono_bg", "mono_fg",
+)
+
+_HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 SPACE_XS = 6
 SPACE_S = 10
@@ -105,6 +118,17 @@ class Theme:
         self.small = tkfont.Font(root=root, family=family, size=9)
         self.small_bold = tkfont.Font(root=root, family=family, size=9, weight="bold")
         self.mono = tkfont.Font(root=root, family=mono, size=9)
+
+
+def colour_problems(source=None) -> list:
+    """``[(name, value)]`` for every palette entry Tk would refuse to draw."""
+    source = Theme if source is None else source
+    bad = []
+    for name in COLOUR_NAMES:
+        value = getattr(source, name, None)
+        if not isinstance(value, str) or not _HEX.match(value):
+            bad.append((name, value))
+    return bad
 
 
 def _image(rows) -> tk.PhotoImage:

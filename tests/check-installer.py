@@ -650,6 +650,34 @@ check(
     "the repair runs on the grub.cfg that grub-mkconfig wrote",
 )
 
+from installer.gui import theme as theme_module  # noqa: E402
+
+check(
+    theme_module.colour_problems() == [],
+    "every palette colour is a #rrggbb value Tk can draw: %r"
+    % (theme_module.colour_problems(),),
+)
+
+
+class _TamperedPalette:
+    pass
+
+
+for _name in theme_module.COLOUR_NAMES:
+    setattr(_TamperedPalette, _name, getattr(theme_module.Theme, _name))
+_TamperedPalette.panel = "BACKGROUND"
+check(
+    theme_module.colour_problems(_TamperedPalette) == [("panel", "BACKGROUND")],
+    "a palette entry that is not a colour is named by the check instead of "
+    "reaching Tk as \"unknown color name BACKGROUND\": %r"
+    % (theme_module.colour_problems(_TamperedPalette),),
+)
+doctor_source = open(os.path.join(ROOT, "panel", "__main__.py"), encoding="utf-8").read()
+check(
+    "colour_problems" in doctor_source and "extract_tb" in doctor_source,
+    "--doctor reports the palette and the startup message names the failing line",
+)
+
 print("\n%s: %d failure(s)"
       % ("INSTALLER CHECK PASS" if not failures else "INSTALLER CHECK FAIL", len(failures)))
 sys.exit(1 if failures else 0)

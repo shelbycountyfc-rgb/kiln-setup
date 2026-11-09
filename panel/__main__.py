@@ -95,6 +95,26 @@ def _doctor() -> int:
     if font_problem:
         problems.append(font_problem)
 
+    from installer.gui import theme as theme_module
+
+    bad_colours = theme_module.colour_problems()
+    print(
+        "Theme       : %d colours%s"
+        % (
+            len(theme_module.COLOUR_NAMES),
+            ""
+            if not bad_colours
+            else ", not #rrggbb: "
+            + ", ".join("%s=%r" % pair for pair in bad_colours),
+        )
+    )
+    if bad_colours:
+        problems.append(
+            "the theme palette is not valid, so the files under /opt/kiln-setup "
+            "are not the ones this panel was built with: copy them again from "
+            "the medium"
+        )
+
     log = os.path.join(
         os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")),
         "kiln-panel.log",
@@ -137,11 +157,35 @@ def main(argv=None) -> int:
         import traceback
 
         traceback.print_exc()
-        # The traceback lands in the log; this is the line the dialog shows.
+        # The traceback lands in the log; this is the line the dialog shows.  The
+        # file and line are what turn "a colour went wrong somewhere in Tk" into
+        # a place to look, and a broken palette is named outright.
+        frames = traceback.extract_tb(sys.exc_info()[2])
+        where = (
+            " at %s:%d" % (os.path.basename(frames[-1].filename), frames[-1].lineno)
+            if frames
+            else ""
+        )
+        hint = ""
+        if "unknown color" in str(error):
+            from installer.gui import theme as theme_module
+
+            bad = theme_module.colour_problems()
+            if bad:
+                hint = (
+                    "\nThe palette in /opt/kiln-setup is not valid: %s."
+                    % ", ".join("%s=%r" % pair for pair in bad)
+                )
+            else:
+                hint = (
+                    "\nThe palette itself is valid (%s), so that colour comes "
+                    "from a widget option in the files at /opt/kiln-setup."
+                    % ", ".join(theme_module.COLOUR_NAMES)
+                )
         print(
-            "kiln-panel: the window could not open (%s)\n"
+            "kiln-panel: the window could not open (%s%s)%s\n"
             "Run 'kiln-panel --doctor': it names the missing piece and the "
-            "package that provides it." % error,
+            "package that provides it." % (error, where, hint),
             file=sys.stderr,
         )
         return 1
