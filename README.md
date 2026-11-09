@@ -212,7 +212,7 @@ kiln-panel --doctor    # python3, Tk, /opt/kiln-setup, the display, the log path
 kiln-panel             # from a terminal: the traceback appears here
 ```
 
-The three causes seen so far:
+The four causes seen so far:
 
 - `python` or `tk` is not installed — `sudo pacman -S python tk`. Both are part
   of the base set the installer installs, so this means the system predates them.
@@ -221,6 +221,14 @@ The three causes seen so far:
   is now no menu entry at all instead of one that starts nothing.
 - No `DISPLAY`: the entry was started from a root shell on a text console, where
   a Tk window has nowhere to appear.
+- The display's X resource database holds a colour Tk cannot read. Tk applies
+  entries such as `*background: BACKGROUND` while it creates the window, before
+  any code of the panel runs, so the failure reads `unknown color name
+  "BACKGROUND" at panel/app.py:46 (Tk raised it in __init__.py:2505)`. The
+  `X resources` line of `kiln-panel --doctor` names the entry. Remove that line
+  from `~/.Xresources` (or `~/.Xdefaults`, `/etc/X11/xresources`) and run
+  `xrdb -merge ~/.Xresources`; `xrdb -remove` clears the database until the next
+  login.
 
 ## Running it
 

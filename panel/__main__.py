@@ -202,7 +202,8 @@ def _doctor() -> int:
         problems.append(
             "the display's X resource database holds a colour that is not "
             "one (see xrdb -query): Tk fails while creating the window, "
-            "before the panel runs any of its own code"
+            "before the panel runs any of its own code; 'xrdb -remove' clears "
+            "it until the next login"
         )
 
     log = os.path.join(
@@ -273,7 +274,8 @@ def main(argv=None) -> int:
                 if bad_resources:
                     hint = (
                         "\nThe display's X resource database holds that colour: "
-                        "%s.  Fix or remove it (xrdb -query shows the rest) and "
+                        "%s.  Remove that line from ~/.Xresources (or "
+                        "~/.Xdefaults), run 'xrdb -merge ~/.Xresources', and "
                         "start the panel again."
                         % ", ".join("%s=%r" % pair for pair in bad_resources)
                     )
