@@ -10,6 +10,7 @@ kernel and initramfs it references really exist before the install finishes.
 from __future__ import annotations
 
 import os
+import re
 
 from . import anticheat, hardening
 from .config import InstallConfig
@@ -22,7 +23,10 @@ GRUB_HEADER = """\
 GRUB_DEFAULT=0
 GRUB_TIMEOUT=5
 GRUB_TIMEOUT_STYLE=menu
-GRUB_DISTRIBUTOR="Kiln"
+# What was installed is Arch Linux.  grub-mkconfig titles every entry
+# "<distributor> Linux, with Linux <kernel>", so "Kiln" here put the
+# installer's name on the menu that starts someone's new system.
+GRUB_DISTRIBUTOR="Arch"
 # No "quiet": a machine that cannot boot has to say why on the console.
 GRUB_CMDLINE_LINUX_DEFAULT="loglevel=4"
 GRUB_CMDLINE_LINUX=""
@@ -206,6 +210,51 @@ def entry_text(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> str:
     lines.append("initrd  %s" % initramfs)
     lines.append("options %s quiet" % kernel_options(ctx, cfg, layout))
     return "\n".join(lines) + "\n"
+
+
+MENUENTRY_TITLE = re.compile(r"^(\s*(?:menuentry|submenu)\s+)(['\"])(.*?)\2", re.MULTILINE)
+
+
+def retitle_menu(text: str) -> tuple:
+    """``(text, changes)``: boot entries that name the installer read Arch Linux.
+
+    GRUB_DISTRIBUTOR is the fix, but the title is built by grub-mkconfig, and
+    this pass makes the written menu say what was installed even if a
+    different grub version titles entries from something else.  Only the
+    quoted title of a menuentry or submenu line is touched.
+    """
+    changes = 0
+
+    def retitle(match):
+        nonlocal changes
+        title = match.group(3)
+        fixed = title.replace("Kiln Linux", "Arch Linux")
+        if fixed == title:
+            fixed = title.replace("Kiln", "Arch Linux")
+        if fixed != title:
+            changes += 1
+        quote = match.group(2)
+        return "%s%s%s%s" % (match.group(1), quote, fixed, quote)
+
+    return MENUENTRY_TITLE.sub(retitle, text), changes
+
+
+def _fix_menu_titles(ctx: Context) -> None:
+    """A menu that says "Kiln Linux" is about to start an Arch install."""
+    if ctx.dry_run:
+        return
+    text = ctx.read_target("boot/grub/grub.cfg")
+    if not text:
+        return
+    fixed, changes = retitle_menu(text)
+    if not changes:
+        return
+    ctx.write_target("boot/grub/grub.cfg", fixed)
+    ctx.log.log(
+        "the boot menu named the installer: %d title(s) now read Arch Linux"
+        % changes,
+        "warn",
+    )
 
 
 def _fix_grub_paths(ctx: Context, cfg: InstallConfig) -> None:
@@ -580,6 +629,7 @@ def install_grub(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
         for member in layout.members or []:
             ctx.chroot("grub-install --target=i386-pc --recheck %s" % member.disk)
     ctx.chroot("grub-mkconfig -o /boot/grub/grub.cfg")
+    _fix_menu_titles(ctx)
     _verify_kernel(ctx, cfg)
     _fix_grub_paths(ctx, cfg)
     if ctx.dry_run:

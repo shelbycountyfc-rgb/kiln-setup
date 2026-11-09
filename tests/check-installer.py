@@ -618,6 +618,38 @@ check(
     "the build applies the local-boot rewrite to the profile it builds",
 )
 
+check(
+    'GRUB_DISTRIBUTOR="Arch"' in bootloader.GRUB_HEADER,
+    "the GRUB menu names Arch Linux: grub titles every entry from the distributor",
+)
+check(
+    'GRUB_DISTRIBUTOR="Kiln"' not in bootloader.GRUB_HEADER,
+    "the installer's name is not what starts the installed system",
+)
+retitled, retitled_changes = bootloader.retitle_menu(
+    "menuentry 'Kiln Linux, with Linux linux' --class arch --class gnu-linux {\n"
+    "\tlinux /vmlinuz-linux root=UUID=abc rw\n"
+    "}\n"
+    "menuentry 'Arch Linux, with Linux linux (fallback)' {\n"
+    "}\n"
+)
+check(
+    retitled_changes == 1
+    and "menuentry 'Arch Linux, with Linux linux' --class arch" in retitled,
+    "an entry titled after the installer is rewritten, and the rest of the line "
+    "survives: %r" % (retitled,),
+)
+check(
+    "menuentry 'Arch Linux, with Linux linux (fallback)'" in retitled,
+    "an entry that already says Arch Linux is left alone",
+)
+grub_text = open(os.path.join(ROOT, "installer", "bootloader.py"),
+                 encoding="utf-8").read()
+check(
+    "_fix_menu_titles(ctx)" in grub_text,
+    "the repair runs on the grub.cfg that grub-mkconfig wrote",
+)
+
 print("\n%s: %d failure(s)"
       % ("INSTALLER CHECK PASS" if not failures else "INSTALLER CHECK FAIL", len(failures)))
 sys.exit(1 if failures else 0)
