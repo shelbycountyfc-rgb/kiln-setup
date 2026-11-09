@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
+import subprocess
 import sys
 
 from . import APP_NAME, __version__
@@ -35,6 +37,46 @@ def _frame_label(frame) -> str:
     except ValueError:  # a different drive on Windows
         path = os.path.basename(frame.filename)
     return "%s:%d" % (path, frame.lineno)
+
+
+#: Resource attributes Tk reads as a colour when it creates a window.
+_COLOUR_ATTRIBUTE = re.compile(r"(?i)(?:^|\.|\*)(?:background|foreground|color|colour)$")
+_BARE_WORD = re.compile(r"^[A-Z][A-Z_ ]*$")
+
+
+def _x_resources() -> dict:
+    """The display's X resource database, as ``{attribute: value}``.
+
+    Tk reads it while it creates the root window, before any widget of this
+    program exists.  An entry such as ``*background: BACKGROUND`` therefore
+    stops Tk with "unknown color name" and no line of the panel in the
+    traceback, which is what makes this look like a bug in the panel.
+    """
+    try:
+        result = subprocess.run(
+            ["xrdb", "-query"], capture_output=True, text=True, timeout=10
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    if result.returncode != 0:
+        return {}
+    resources = {}
+    for line in result.stdout.splitlines():
+        name, separator, value = line.partition(":")
+        if separator and name.strip():
+            resources[name.strip()] = value.strip()
+    return resources
+
+
+def _resource_colour_problems(resources) -> list:
+    """``[(name, value)]`` for resource entries that cannot be a colour."""
+    problems = []
+    for name, value in (resources or {}).items():
+        if not _COLOUR_ATTRIBUTE.search(name):
+            continue
+        if _BARE_WORD.match(value or ""):
+            problems.append((name, value))
+    return problems
 
 
 def _check() -> int:
@@ -144,6 +186,25 @@ def _doctor() -> int:
             "the medium"
         )
 
+    resources = _x_resources()
+    bad_resources = _resource_colour_problems(resources)
+    print(
+        "X resources : %d entries%s"
+        % (
+            len(resources),
+            ""
+            if not bad_resources
+            else ", not colours: "
+            + ", ".join("%s=%r" % pair for pair in bad_resources),
+        )
+    )
+    if bad_resources:
+        problems.append(
+            "the display's X resource database holds a colour that is not "
+            "one (see xrdb -query): Tk fails while creating the window, "
+            "before the panel runs any of its own code"
+        )
+
     log = os.path.join(
         os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")),
         "kiln-panel.log",
@@ -208,11 +269,21 @@ def main(argv=None) -> int:
                     % ", ".join("%s=%r" % pair for pair in bad)
                 )
             else:
-                hint = (
-                    "\nThe palette itself is valid (%s), so that colour comes "
-                    "from a widget option in the files at /opt/kiln-setup."
-                    % ", ".join(theme_module.COLOUR_NAMES)
-                )
+                bad_resources = _resource_colour_problems(_x_resources())
+                if bad_resources:
+                    hint = (
+                        "\nThe display's X resource database holds that colour: "
+                        "%s.  Fix or remove it (xrdb -query shows the rest) and "
+                        "start the panel again."
+                        % ", ".join("%s=%r" % pair for pair in bad_resources)
+                    )
+                else:
+                    hint = (
+                        "\nThe palette itself is valid (%s), so that colour "
+                        "comes from a widget option in the files at "
+                        "/opt/kiln-setup."
+                        % ", ".join(theme_module.COLOUR_NAMES)
+                    )
         print(
             "kiln-panel: the window could not open (%s%s)%s%s\n"
             "Run 'kiln-panel --doctor': it names the missing piece and the "

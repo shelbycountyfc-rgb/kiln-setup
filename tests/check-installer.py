@@ -700,6 +700,29 @@ check(
     "with no frame of its own, the tkinter frame is still reported rather than nothing",
 )
 
+check(
+    panel_main._resource_colour_problems(
+        {"*background": "BACKGROUND", "Xft.dpi": "96", "*foreground": "#1a1a1a"}
+    )
+    == [("*background", "BACKGROUND")],
+    "a colour in the display's X resource database that is not one is named: %r"
+    % (
+        panel_main._resource_colour_problems(
+            {"*background": "BACKGROUND", "Xft.dpi": "96", "*foreground": "#1a1a1a"}
+        ),
+    ),
+)
+check(
+    panel_main._resource_colour_problems({"*background": "#1a1a1a", "*foreground": "black"})
+    == [],
+    "valid X resources are left alone",
+)
+doctor_text = open(os.path.join(ROOT, "panel", "__main__.py"), encoding="utf-8").read()
+check(
+    "X resources :" in doctor_text and "_resource_colour_problems" in doctor_text,
+    "--doctor prints the X resource database, which Tk reads before the panel's code",
+)
+
 print("\n%s: %d failure(s)"
       % ("INSTALLER CHECK PASS" if not failures else "INSTALLER CHECK FAIL", len(failures)))
 sys.exit(1 if failures else 0)
