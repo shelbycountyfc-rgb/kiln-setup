@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import re
 
-from . import anticheat, hardening
+from . import hardening
 from .config import InstallConfig
 from .context import Context, uuid_of
 from .disk import DiskPlan
@@ -191,9 +191,6 @@ def kernel_options(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> str:
                 "hibernation",
                 "warn",
             )
-    options.extend(
-        anticheat.kernel_parameters(cfg, getattr(ctx.hardware, "cpu_vendor", ""))
-    )
     options.extend(hardening.kernel_parameters(cfg))
     options.extend(cfg.kernel_param_list)
     return " ".join(options)
@@ -581,7 +578,6 @@ def grub_defaults(
                 # A swap file: the file system it lives on, and where it starts.
                 extra.append("resume=UUID=%s" % layout.root_uuid)
                 extra.append("resume_offset=%d" % layout.swap_offset)
-        extra.extend(anticheat.kernel_parameters(cfg, cpu_vendor))
         extra.extend(hardening.kernel_parameters(cfg))
         extra.extend(cfg.kernel_param_list)
         if extra:

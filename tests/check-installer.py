@@ -488,47 +488,44 @@ check(any("arch.conf" in path for path in recorder.files),
 
 
 
-# -- the Epic Games profile writes the kernel side of EAC Linux v2 --------------
-from installer import anticheat, bootloader  # noqa: E402
+# -- the Epic Games anti-cheat profile is not part of the installer ------------
+import re  # noqa: E402
 
-eac = InstallConfig.from_dict({
-    "disk": "/dev/sda", "efi": True, "secureBoot": False, "eac": True,
-})
-check(eac.eac, "the Epic Games answer is kept")
-check(eac.secure_boot, "the anti-cheat profile turns Secure Boot signing on by itself")
-amd = anticheat.kernel_parameters(eac, "AuthenticAMD")
-check("lockdown=integrity" in amd and "kexec_load_disabled=1" in amd,
-      "lockdown and no kexec reach the command line: %r" % (amd,))
-check("amd_iommu=on" in amd and "intel_iommu=on" not in amd,
-      "the IOMMU parameter matches the CPU: %r" % (amd,))
-check("iommu=pt" not in " ".join(amd), "IOMMU passthrough is left off")
+from installer import bootloader  # noqa: E402
+
 check(
-    anticheat.kernel_parameters(InstallConfig.from_dict({"disk": "/dev/sda"})) == [],
-    "an install without the profile gets none of these parameters",
+    not hasattr(InstallConfig, "eac") and "eac" not in InstallConfig.__annotations__,
+    "the Epic Games answer is gone from the configuration",
 )
-bios = InstallConfig.from_dict({
-    "disk": "/dev/sda", "efi": False, "eac": True,
-}).system_errors()
-check(any("anti-cheat" in problem and "UEFI" in problem for problem in bios),
-      "the profile is refused on BIOS firmware: %r" % (bios,))
-
-eac_layout = types.SimpleNamespace(
-    encryption="none", volumes="partitions", subvolumes=False, swap=None,
-    swap_file=False, swap_offset=0, swap_uuid="", root_uuid="", luks_uuid="",
-    crypt_name="", mapper="", md_device="",
+check(
+    "eac" not in InstallConfig().to_public(),
+    "an installation request carries no anti-cheat setting: %r"
+    % (sorted(InstallConfig().to_public()),),
 )
-eac_layout.device = lambda part: "/dev/sda2"
-eac_ctx = types.SimpleNamespace(
-    log=Logger(None), dry_run=False,
-    hardware=types.SimpleNamespace(cpu_vendor="AuthenticAMD"),
+check(
+    InstallConfig.from_dict({"disk": "/dev/sda", "eac": True}).secure_boot is False,
+    "an old answer that still says eac is ignored, not turned into Secure Boot "
+    "signing",
 )
-with mock.patch("installer.bootloader.uuid_of", return_value="ROOT-UUID"):
-    entry = bootloader.kernel_options(eac_ctx, eac, eac_layout)
-check("lockdown=integrity" in entry and "amd_iommu=on" in entry,
-      "the systemd-boot entry carries the anti-cheat parameters: %r" % (entry,))
-grub = bootloader.grub_defaults(eac, eac_layout, "AuthenticAMD")
-check("lockdown=integrity" in grub and "amd_iommu=on" in grub,
-      "the GRUB default line carries the anti-cheat parameters")
+check(
+    not os.path.exists(os.path.join(ROOT, "installer", "anticheat.py")),
+    "installer/anticheat.py is gone, so no boot entry can carry its parameters",
+)
+installer_source = "".join(
+    open(os.path.join(ROOT, "installer", name), encoding="utf-8").read()
+    for name in sorted(os.listdir(os.path.join(ROOT, "installer")))
+    if name.endswith(".py")
+)
+check(
+    re.search(r"\b(?:anticheat|eac|EAC)\b", installer_source) is None,
+    "nothing under installer/ mentions the anti-cheat any more: %r"
+    % (re.findall(r".{0,20}\b(?:anticheat|eac|EAC)\b.{0,20}", installer_source)[:3],),
+)
+readme = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
+check(
+    "Epic Games and anti-cheat" not in readme and "EAC Linux" not in readme,
+    "the README no longer documents a profile the installer does not set up",
+)
 
 from installer import packages as package_layer  # noqa: E402
 

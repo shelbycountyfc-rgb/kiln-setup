@@ -110,8 +110,6 @@ class InstallConfig:
     packages: list = field(default_factory=list)
     #: Extra kernel parameters, exactly as they should appear on the command line.
     kernel_params: str = ""
-    #: Set up the kernel the way Epic's anti-cheat for Linux requires.
-    eac: bool = False
     hibernate: bool = False
     root_password: str = ""
     user: UserAccount | None = None
@@ -170,17 +168,12 @@ class InstallConfig:
         config.unlock = (
             str(data.get("unlock", "passphrase")).strip().lower() or "passphrase"
         )
-        config.eac = bool(data.get("eac", False))
         config.secure_boot = bool(data.get("secureBoot", False))
         config.hardening = bool(data.get("hardening", False))
         config.signed_modules = bool(data.get("signedModules", False))
         if config.hardening:
             # A locked-down kernel without Secure Boot is a claim the firmware
             # does not back up, so the two go together.
-            config.secure_boot = True
-        if config.eac:
-            # EAC Linux v2 refuses a machine without Secure Boot, so asking
-            # for its kernel profile brings the signing with it.
             config.secure_boot = True
         config.uki = bool(data.get("uki", False))
         config.clock_local = bool(data.get("clockLocal", False))
@@ -537,11 +530,6 @@ class InstallConfig:
                 )
         if self.swap_file and not self.swap:
             errors.append("A swap file needs swap to be turned on as well.")
-        if self.eac and not self.efi:
-            errors.append(
-                "Epic Games anti-cheat runs only with UEFI firmware, Secure Boot "
-                "and a measured boot, so it cannot be set up on a BIOS install."
-            )
         if len(self.kernel_params) > 400:
             errors.append("The kernel command line is limited to 400 characters.")
         for token in self.kernel_param_list:
@@ -588,7 +576,6 @@ class InstallConfig:
             "hibernate": self.hibernate,
             "secureBoot": self.secure_boot,
             "hardening": self.hardening,
-            "eac": self.eac,
             "signedModules": self.signed_modules,
             "uki": self.uki,
             "clockLocal": self.clock_local,

@@ -366,46 +366,6 @@ disk(s) -> mdadm array -> LUKS2 container -> LVM volume group -> ext4/xfs/btrfs 
   by default, and out-of-tree drivers built later would refuse to load until
   they are signed too.
 
-## Epic Games and anti-cheat
-
-Fortnite does not run on Linux yet.  On 14 October 2026 Epic said it is rebuilding
-Easy Anti-Cheat for Linux as "EAC Linux v2" and that Fortnite will be the first
-game to pilot it, with no date given.  No kernel setting makes the game start
-before that ships.
-
-EAC Linux v2 loads no anti-cheat kernel module of its own.  It uses what the
-kernel already has and refuses a machine that does not provide it: a kernel and
-modules signed with well-known keys, Secure Boot, a measured boot from a TPM 2.0,
-the IOMMU on without passthrough, `lockdown=integrity`, the BPF LSM active, and
-kexec disabled.
-
-The System page switch **Mark this install for Epic Games (Easy Anti-Cheat)**, in
-the **Epic Games (Fortnite)** card, covers the
-kernel side of that list.  It writes `lockdown=integrity`, `kexec_load_disabled=1`
-and `intel_iommu=on` or `amd_iommu=on` (matched to this CPU) into the boot entry,
-GRUB's default line included, and turns Secure Boot signing on because EAC refuses
-a machine without it.  It is refused for a BIOS installation, which has neither
-Secure Boot nor a measured boot.
-
-What the switch cannot do for you:
-
-- **Well-known keys.** Epic accepts kernels and modules signed by an
-  organisation whose key the firmware trusts.  A key you enrol yourself through
-  `sbctl` is not one of those, so watch what the distribution you follow
-  publishes.
-- **TPM 2.0 and measured boot.** The firmware has to have the TPM enabled and
-  measuring; a VM needs a TPM device attached.
-- **The game.** Fortnite arrives when Epic ships it.
-
-On a machine that has been set up, these report what the anti-cheat reads:
-
-```bash
-mokutil --sb-state                  # Secure Boot, and whose keys
-cat /sys/kernel/security/lockdown   # integrity lockdown active
-ls /dev/tpmrm0                      # the TPM 2.0 device
-bootctl status                      # the boot chain, and Secure Boot state
-```
-
 ## Secure Boot, the AUR and other architectures
 
 - **Secure Boot** — `sbctl` creates keys, signs the kernel, the initramfs and the
