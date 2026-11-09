@@ -181,6 +181,17 @@ device, usually the installed disk's own GRUB.  Check these in order:
   syslinux modules.  The BIOS entry called "Boot existing OS" is `chain.c32`
   too and is not the installer: the entry to pick is "Kiln Setup - install
   Arch Linux".
+- **The same error straight after an installation.**  The installed system
+  gets GRUB on legacy BIOS and systemd-boot on UEFI, never syslinux, so a
+  com32 message after rebooting is the stick starting again because it is
+  still plugged in and still first in the boot order.  "Boot existing OS" on
+  the medium does not start the new installation: it chainloads the disk with
+  `chain.c32`, and on a stick that cannot be read there it fails instead.
+  Remove the stick, or choose the internal disk by name in the firmware boot
+  menu, and the new system starts through its own boot loader.  If it then
+  does not start, the disk is the question, not this message: check
+  `efibootmgr -v`, `lsblk -f`, `ls /boot/EFI` and `/boot/grub/grub.cfg` from
+  the medium's shell.
 - **"No bootable option or device was found".** That is EFI firmware that only
   reads the boot catalogue finding no EFI entry.  Builds from revision 3 on
   register a UEFI El Torito image as well as the ESP partition, so this image
