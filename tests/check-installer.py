@@ -678,6 +678,28 @@ check(
     "--doctor reports the palette and the startup message names the failing line",
 )
 
+from panel import __main__ as panel_main  # noqa: E402
+import traceback  # noqa: E402
+
+frames = [
+    traceback.FrameSummary(os.path.join(ROOT, "panel", "pages.py"), 812, "build"),
+    traceback.FrameSummary("/usr/lib/python3.13/tkinter/__init__.py", 2505, "configure"),
+]
+check(
+    panel_main._failing_frame(frames).filename.endswith(os.path.join("panel", "pages.py")),
+    "a Tk error is reported at the call in this project, not at tkinter/__init__.py: %r"
+    % (panel_main._frame_label(panel_main._failing_frame(frames)),),
+)
+check(
+    panel_main._frame_label(frames[0]).replace(os.sep, "/").endswith("panel/pages.py:812"),
+    "the reported line is readable beside /opt/kiln-setup: %r"
+    % (panel_main._frame_label(frames[0]),),
+)
+check(
+    panel_main._failing_frame([frames[1]]).filename.endswith("__init__.py"),
+    "with no frame of its own, the tkinter frame is still reported rather than nothing",
+)
+
 print("\n%s: %d failure(s)"
       % ("INSTALLER CHECK PASS" if not failures else "INSTALLER CHECK FAIL", len(failures)))
 sys.exit(1 if failures else 0)

@@ -9,6 +9,34 @@ import sys
 from . import APP_NAME, __version__
 
 
+def _failing_frame(frames, root: str | None = None):
+    """The innermost frame of this project.
+
+    Tk raises its errors from inside tkinter itself, so the last frame of a
+    colour or option error is ``tkinter/__init__.py``: the line that matters is
+    the one in the panel or the installer that handed the value over.
+    """
+    root = root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    inside = [
+        frame
+        for frame in frames
+        if os.path.abspath(frame.filename).startswith(root + os.sep)
+    ]
+    if inside:
+        return inside[-1]
+    return frames[-1] if frames else None
+
+
+def _frame_label(frame) -> str:
+    """``panel/pages.py:812``: the path as it reads beside /opt/kiln-setup."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        path = os.path.relpath(os.path.abspath(frame.filename), os.path.dirname(root))
+    except ValueError:  # a different drive on Windows
+        path = os.path.basename(frame.filename)
+    return "%s:%d" % (path, frame.lineno)
+
+
 def _check() -> int:
     from . import core
     from installer.context import Logger, human_bytes
@@ -97,6 +125,7 @@ def _doctor() -> int:
 
     from installer.gui import theme as theme_module
 
+    print("Theme from  : %s" % getattr(theme_module, "__file__", "?"))
     bad_colours = theme_module.colour_problems()
     print(
         "Theme       : %d colours%s"
@@ -161,11 +190,13 @@ def main(argv=None) -> int:
         # file and line are what turn "a colour went wrong somewhere in Tk" into
         # a place to look, and a broken palette is named outright.
         frames = traceback.extract_tb(sys.exc_info()[2])
-        where = (
-            " at %s:%d" % (os.path.basename(frames[-1].filename), frames[-1].lineno)
-            if frames
-            else ""
-        )
+        frame = _failing_frame(frames)
+        where = " at %s" % _frame_label(frame) if frame is not None else ""
+        tk_frame = ""
+        if frames and frame is not None and frames[-1] is not frame:
+            tk_frame = " (Tk raised it in %s:%d)" % (
+                os.path.basename(frames[-1].filename), frames[-1].lineno,
+            )
         hint = ""
         if "unknown color" in str(error):
             from installer.gui import theme as theme_module
@@ -183,9 +214,9 @@ def main(argv=None) -> int:
                     % ", ".join(theme_module.COLOUR_NAMES)
                 )
         print(
-            "kiln-panel: the window could not open (%s%s)%s\n"
+            "kiln-panel: the window could not open (%s%s)%s%s\n"
             "Run 'kiln-panel --doctor': it names the missing piece and the "
-            "package that provides it." % (error, where, hint),
+            "package that provides it." % (error, where, tk_frame, hint),
             file=sys.stderr,
         )
         return 1
