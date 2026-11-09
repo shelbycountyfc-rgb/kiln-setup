@@ -316,6 +316,10 @@ if command -v xorriso >/dev/null 2>&1; then
       || die "the installer launcher is not inside the live root"
     grep -q 'opt/kiln-setup/panel/app.py' <<<"$live_listing" \
       || die "the control panel is not inside the live root"
+    # An Xfce install copies these into the new system: without them the
+    # desktop falls back to a plain colour and the look is gone.
+    grep -q 'opt/kiln-setup/installer/assets/wallpapers/kiln-001-aurora.png' <<<"$live_listing" \
+      || die "the Xfce wallpapers are not inside the live root"
     grep -q 'etc/systemd/system/getty@tty1.service.d/autologin.conf' <<<"$live_listing" \
       || die "the autologin that starts the installer at boot is missing"
 
