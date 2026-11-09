@@ -77,7 +77,7 @@ class Panel:
         outer = tk.Frame(self.root, bg=theme.panel)
         outer.pack(fill="both", expand=True)
 
-        self.rail = StepRail(outer, theme)
+        self.rail = StepRail(outer, theme, on_select=self.goto)
         self.rail.pack(side="left", fill="y")
         self.rail.set_steps(self.NAV)
         self.rail.footer.configure(

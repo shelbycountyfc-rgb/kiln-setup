@@ -158,9 +158,18 @@ class Form(tk.Frame):
 class StepRail(tk.Frame):
     """The step list on the left edge, styled like the Windows Settings nav."""
 
-    def __init__(self, master: tk.Misc, theme: Theme, width: int = 236) -> None:
+    def __init__(
+        self, master: tk.Misc, theme: Theme, width: int = 236, on_select=None
+    ) -> None:
+        """A step list on the left edge.
+
+        With ``on_select`` the rows are a menu: a click anywhere on a row calls
+        ``on_select(key)``.  Without it the rail is the installer's progress
+        indicator, which the Back and Next buttons move along.
+        """
         super().__init__(master, bg=theme.rail, width=width)
         self.theme = theme
+        self.on_select = on_select
         self.pack_propagate(False)
         self._rows: dict[str, tuple] = {}
         self._order: list = []
@@ -212,6 +221,20 @@ class StepRail(tk.Frame):
             text.pack(side="left", padx=(10, 8), fill="x", expand=True)
             self._rows[key] = (row, bar, dot, text, index)
             self.set_state(key, "pending")
+            if self.on_select is not None:
+                # The label and the dot are children of the row, so each of
+                # them needs the binding too: Tk delivers a click to the
+                # innermost widget and does not bubble it to the parent.
+                for widget in (row, bar, dot, text):
+                    widget.configure(cursor="hand2")
+                    widget.bind(
+                        "<Button-1>", lambda _event, step=key: self.choose(step)
+                    )
+
+    def choose(self, key: str) -> None:
+        """Report a click on ``key`` to whoever asked for one."""
+        if self.on_select is not None:
+            self.on_select(key)
 
     def set_state(self, key: str, state: str) -> None:
         row = self._rows.get(key)

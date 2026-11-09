@@ -723,6 +723,32 @@ check(
     "--doctor prints the X resource database, which Tk reads before the panel's code",
 )
 
+# The rail is a menu in the panel and a progress indicator in the installer.
+import inspect  # noqa: E402
+from installer.gui.widgets import StepRail  # noqa: E402
+
+check(
+    "on_select" in inspect.signature(StepRail.__init__).parameters,
+    "the rail takes a click handler, which the installer leaves unset",
+)
+widgets_source = open(
+    os.path.join(ROOT, "installer", "gui", "widgets.py"), encoding="utf-8"
+).read()
+check(
+    "<Button-1>" in widgets_source
+    and "for widget in (row, bar, dot, text):" in widgets_source,
+    "a click on the row, its bar, its dot or its label all reach the handler: "
+    "Tk does not bubble a child's click to its parent",
+)
+panel_app_source = open(
+    os.path.join(ROOT, "panel", "app.py"), encoding="utf-8"
+).read()
+check(
+    "on_select=self.goto" in panel_app_source,
+    "the panel hands the rail its own goto(), so every section can be opened: "
+    "without it the rows were drawn but did nothing",
+)
+
 print("\n%s: %d failure(s)"
       % ("INSTALLER CHECK PASS" if not failures else "INSTALLER CHECK FAIL", len(failures)))
 sys.exit(1 if failures else 0)
