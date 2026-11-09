@@ -266,7 +266,7 @@ class StepRail(tk.Frame):
             dot.create_text(11, 11, text="!", fill="#ffffff", font=theme.small_bold)
             text.configure(fg=theme.fail, font=theme.body)
         else:
-            dot.create_oval(2, 2, 20, 20, fill=surface, outline="#c7c7c7", width=1)
+            dot.create_oval(2, 2, 20, 20, fill=surface, outline=theme.control_edge, width=1)
             dot.create_text(11, 11, text=str(index), fill=theme.faint, font=theme.small)
             text.configure(fg=theme.muted, font=theme.body)
 
@@ -283,16 +283,16 @@ class Banner(tk.Frame):
         self.bar = tk.Frame(self, bg=theme.fail, width=3)
         self.bar.pack(side="left", fill="y")
         self.label = tk.Label(
-            self, text="", bg="#fde7e9", fg="#a4262c", font=theme.body, anchor="w",
+            self, text="", bg=theme.fail_soft, fg=theme.fail, font=theme.body, anchor="w",
             justify="left", wraplength=660, padx=12, pady=10,
         )
         self.label.pack(side="left", fill="both", expand=True)
 
     def show(self, text: str, kind: str = "error") -> None:
         palette = {
-            "error": (self.theme.fail, "#fde7e9", "#a4262c"),
-            "warn": (self.theme.warn, "#fff4ce", "#9d5d00"),
-            "ok": (self.theme.ok, "#dff6dd", self.theme.ok),
+            "error": (self.theme.fail, self.theme.fail_soft, self.theme.fail),
+            "warn": (self.theme.warn, self.theme.warn_soft, self.theme.warn),
+            "ok": (self.theme.ok, self.theme.ok_soft, self.theme.ok),
         }
         bar, background, foreground = palette.get(kind, palette["error"])
         self.bar.configure(bg=bar)
@@ -304,7 +304,7 @@ class Notice(tk.Frame):
     """Static note printed on a page (not a validation message)."""
 
     def __init__(self, master: tk.Misc, theme: Theme, text: str, kind: str = "warn") -> None:
-        colors = {"warn": ("#c98a00", "#fff4ce"), "info": (theme.accent, "#f0f6fc")}
+        colors = {"warn": (theme.warn, theme.warn_soft), "info": (theme.accent, theme.accent_soft)}
         bar, background = colors.get(kind, colors["warn"])
         super().__init__(master, bg=background)
         tk.Frame(self, bg=bar, width=3).pack(side="left", fill="y")
@@ -318,7 +318,7 @@ class Pill(tk.Label):
     """A small rounded badge, used for counts and states."""
 
     def __init__(self, master: tk.Misc, theme: Theme, text: str = "", kind: str = "info") -> None:
-        backgrounds = {"info": theme.accent_soft, "ok": "#dff6dd", "warn": "#fff4ce"}
+        backgrounds = {"info": theme.accent_soft, "ok": theme.ok_soft, "warn": theme.warn_soft}
         foregrounds = {"info": theme.accent_press, "ok": theme.ok, "warn": theme.warn}
         super().__init__(
             master, text=text, bg=backgrounds.get(kind, theme.accent_soft),
@@ -391,7 +391,7 @@ class OptionCard(tk.Frame):
             self.marker.create_oval(1, 1, 15, 15, outline=self.theme.accent, width=2, fill=self.theme.panel)
             self.marker.create_oval(5, 5, 11, 11, outline=self.theme.accent, fill=self.theme.accent)
         else:
-            self.marker.create_oval(1, 1, 15, 15, outline="#8a8a8a", width=1, fill=self.theme.panel)
+            self.marker.create_oval(1, 1, 15, 15, outline=self.theme.faint, width=1, fill=self.theme.panel)
 
     def refresh(self) -> None:
         self._paint()

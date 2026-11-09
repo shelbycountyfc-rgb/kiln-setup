@@ -1,9 +1,10 @@
 """Colours, fonts and ttk styles for the installer window.
 
-The window follows Windows Setup: a light grey chrome, a white content sheet,
-Segoe UI, flat controls and one blue accent (#0067c0) that carries the primary
-action.  Every page draws with these names, so the whole window can be retuned
-in one place.
+A light, flat interface: a soft grey chrome around a white content sheet, one
+blue accent that carries the primary action, hairline borders instead of
+bevels, and a small set of semantic tints for messages.  Every page draws with
+these names, so the whole window is retuned in one place, and the palette is
+checked for contrast by ``tests/check-installer.py`` rather than by eye.
 """
 
 from __future__ import annotations
@@ -13,27 +14,42 @@ import tkinter as tk
 from tkinter import font as tkfont
 from tkinter import ttk
 
-INK = "#1a1a1a"
-INK_SOFT = "#333333"
-MUTED = "#5c5c5c"
-FAINT = "#767676"
-LINE = "#e0e0e0"
+INK = "#101418"
+INK_SOFT = "#2b3138"
+MUTED = "#58606a"
+FAINT = "#6b7480"
+LINE = "#e4e7ec"
 PANEL = "#ffffff"
-CANVAS = "#f3f3f3"
-FOOTER = "#f3f3f3"
-ACCENT = "#0067c0"  # Windows 11 system accent
-ACCENT_HOVER = "#1975c5"
-ACCENT_PRESS = "#005a9e"
-ACCENT_SOFT = "#e5f1fb"
-RAIL = "#f3f3f3"
-RAIL_LINE = "#e5e5e5"
-RAIL_TEXT = "#1a1a1a"
-RAIL_FAINT = "#6b6b6b"
-OK = "#0f7b0f"
-WARN = "#9d5d00"
-FAIL = "#c42b1c"
-MONO_BG = "#0c0c0c"
-MONO_FG = "#cccccc"
+CANVAS = "#f6f7f9"
+FOOTER = "#f6f7f9"
+ACCENT = "#0a5fd0"
+ACCENT_HOVER = "#2b78e4"
+ACCENT_PRESS = "#084a9e"
+ACCENT_SOFT = "#e8f0fd"
+RAIL = "#f6f7f9"
+RAIL_LINE = "#e9ecf1"
+RAIL_TEXT = "#101418"
+RAIL_FAINT = "#676f7a"
+OK = "#0f7a55"
+OK_SOFT = "#e6f6ee"
+WARN = "#8a5a00"
+WARN_SOFT = "#fdf3e3"
+FAIL = "#b3261e"
+FAIL_SOFT = "#fdecea"
+MONO_BG = "#0b0e12"
+MONO_FG = "#cfd6de"
+
+#: Control surfaces.  These are the greys the ttk styles are built from, so a
+#: button, an input and a table header cannot drift apart.
+CONTROL_EDGE = "#7c8794"
+FIELD_BORDER = "#d7dce3"
+BTN_SURFACE = "#fbfcfd"
+HOVER_SURFACE = "#eff2f6"
+PRESSED_SURFACE = "#e6eaf0"
+DISABLED_SURFACE = "#f4f6f8"
+DISABLED_TEXT = "#a9b1bb"
+SCROLL_THUMB = "#c3cad3"
+SCROLL_THUMB_HOVER = "#a4adb8"
 
 #: Every colour the window draws with.  A palette entry that is not a
 #: #rrggbb value reaches Tk as a colour name, and Tk answers with
@@ -42,7 +58,8 @@ MONO_FG = "#cccccc"
 COLOUR_NAMES = (
     "ink", "ink_soft", "muted", "faint", "line", "panel", "canvas", "footer",
     "accent", "accent_hover", "accent_press", "accent_soft", "rail", "rail_line",
-    "rail_text", "rail_faint", "ok", "warn", "fail", "mono_bg", "mono_fg",
+    "rail_text", "rail_faint", "ok", "ok_soft", "warn", "warn_soft", "fail",
+    "fail_soft", "mono_bg", "mono_fg", "control_edge",
 )
 
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -95,10 +112,14 @@ class Theme:
     rail_text = RAIL_TEXT
     rail_faint = RAIL_FAINT
     ok = OK
+    ok_soft = OK_SOFT
     warn = WARN
+    warn_soft = WARN_SOFT
     fail = FAIL
+    fail_soft = FAIL_SOFT
     mono_bg = MONO_BG
     mono_fg = MONO_FG
+    control_edge = CONTROL_EDGE
 
     def __init__(self, root: tk.Misc) -> None:
         self.root = root
@@ -109,8 +130,8 @@ class Theme:
         self.brand = tkfont.Font(root=root, family=family, size=13, weight="bold")
         self.display = tkfont.Font(root=root, family=family, size=26, weight="bold")
         self.big = tkfont.Font(root=root, family=family, size=26, weight="bold")
-        # Windows Setup headlines are semibold; Tk only offers bold, so the
-        # sizes are kept a step smaller than the weight would suggest.
+        # Setup headlines are semibold; Tk only offers bold, so the sizes are
+        # kept a step smaller than the weight would suggest.
         self.title = tkfont.Font(root=root, family=family, size=19, weight="bold")
         self.heading = tkfont.Font(root=root, family=family, size=11, weight="bold")
         self.body = tkfont.Font(root=root, family=family, size=10)
@@ -129,6 +150,21 @@ def colour_problems(source=None) -> list:
         if not isinstance(value, str) or not _HEX.match(value):
             bad.append((name, value))
     return bad
+
+
+def contrast(one: str, two: str) -> float:
+    """WCAG contrast ratio between two #rrggbb colours (1.0 .. 21.0)."""
+    def luminance(value: str) -> float:
+        channels = [int(value[index:index + 2], 16) / 255.0 for index in (1, 3, 5)]
+        linear = [
+            channel / 12.92 if channel <= 0.03928
+            else ((channel + 0.055) / 1.055) ** 2.4
+            for channel in channels
+        ]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+    first, second = luminance(one), luminance(two)
+    return (max(first, second) + 0.05) / (min(first, second) + 0.05)
 
 
 def _image(rows) -> tk.PhotoImage:
@@ -153,7 +189,7 @@ def _windows_indicators(style: ttk.Style, theme: Theme) -> None:
     for i in range(box):
         for j in range(box):
             if i in (0, box - 1) or j in (0, box - 1):
-                check_off[i][j] = "#8a8a8a"
+                check_off[i][j] = CONTROL_EDGE
     check_on = [[ACCENT if j < box else surface for j in range(size)] for _ in range(box)]
     for x, y in ((3, 8), (4, 9), (5, 10), (6, 11), (7, 10), (8, 9), (9, 8), (10, 7), (11, 6)):
         for dy in (0, -1):
@@ -167,7 +203,7 @@ def _windows_indicators(style: ttk.Style, theme: Theme) -> None:
         for j in range(box):
             distance = ((i - centre) ** 2 + (j - centre) ** 2) ** 0.5
             if distance <= 7.3:
-                radio_off[i][j] = "#8a8a8a"
+                radio_off[i][j] = CONTROL_EDGE
             if distance <= 6.3:
                 radio_off[i][j] = surface
                 radio_on[i][j] = "#ffffff"
@@ -220,38 +256,39 @@ def apply(root: tk.Misc) -> Theme:
     style.configure(".", background=PANEL, foreground=INK, font=theme.body)
     style.configure("TFrame", background=PANEL)
     style.configure("TLabel", background=PANEL, foreground=INK)
+    style.configure("TSeparator", background=LINE)
 
     # -- buttons -----------------------------------------------------------
-    # Windows buttons are flat rectangles: a filled accent for the default
-    # action and a hairline white button for everything else.
+    # Flat rectangles: a filled accent for the default action and a hairline
+    # button for everything else.
     style.configure(
         "Accent.TButton", background=ACCENT, foreground="#ffffff", borderwidth=0,
         focusthickness=0, padding=(24, 9), font=theme.body, relief="flat",
     )
     style.map(
         "Accent.TButton",
-        background=[("disabled", "#f0f0f0"), ("pressed", ACCENT_PRESS), ("active", ACCENT_HOVER)],
-        foreground=[("disabled", "#a0a0a0")],
+        background=[("disabled", DISABLED_SURFACE), ("pressed", ACCENT_PRESS), ("active", ACCENT_HOVER)],
+        foreground=[("disabled", DISABLED_TEXT)],
     )
     style.configure(
-        "Secondary.TButton", background="#fbfbfb", foreground=INK, borderwidth=1,
-        bordercolor="#d1d1d1", lightcolor="#fbfbfb", darkcolor="#fbfbfb",
+        "Secondary.TButton", background=BTN_SURFACE, foreground=INK, borderwidth=1,
+        bordercolor=FIELD_BORDER, lightcolor=BTN_SURFACE, darkcolor=BTN_SURFACE,
         focusthickness=0, padding=(22, 8), font=theme.body, relief="flat",
     )
     style.map(
         "Secondary.TButton",
-        background=[("disabled", "#f5f5f5"), ("pressed", "#e8e8e8"), ("active", "#f0f0f0")],
-        bordercolor=[("disabled", "#e5e5e5"), ("active", "#b8b8b8")],
-        foreground=[("disabled", "#a0a0a0"), ("active", INK)],
+        background=[("disabled", DISABLED_SURFACE), ("pressed", PRESSED_SURFACE), ("active", HOVER_SURFACE)],
+        bordercolor=[("disabled", LINE), ("active", CONTROL_EDGE)],
+        foreground=[("disabled", DISABLED_TEXT), ("active", INK)],
     )
-    # Ghost buttons read as Windows text links.
+    # Ghost buttons read as text links.
     style.configure(
         "Ghost.TButton", background=PANEL, foreground=ACCENT, borderwidth=0,
         focusthickness=0, padding=(16, 8), font=theme.body, relief="flat",
     )
     style.map(
         "Ghost.TButton",
-        background=[("disabled", PANEL), ("pressed", "#eaf1f8"), ("active", "#f2f7fc")],
+        background=[("disabled", PANEL), ("pressed", ACCENT_SOFT), ("active", HOVER_SURFACE)],
         foreground=[("disabled", FAINT), ("active", ACCENT_PRESS)],
     )
 
@@ -259,7 +296,7 @@ def apply(root: tk.Misc) -> Theme:
     for name in ("TEntry", "TSpinbox"):
         style.configure(
             name, fieldbackground=PANEL, background=PANEL, foreground=INK,
-            bordercolor="#d1d1d1", lightcolor="#d1d1d1", darkcolor="#d1d1d1",
+            bordercolor=FIELD_BORDER, lightcolor=FIELD_BORDER, darkcolor=FIELD_BORDER,
             insertcolor=INK, padding=(9, 6), arrowsize=13,
         )
         style.map(
@@ -267,22 +304,22 @@ def apply(root: tk.Misc) -> Theme:
             bordercolor=[("focus", ACCENT), ("disabled", LINE)],
             lightcolor=[("focus", ACCENT)],
             darkcolor=[("focus", ACCENT)],
-            fieldbackground=[("disabled", "#f5f5f5"), ("readonly", PANEL)],
-            foreground=[("disabled", "#a0a0a0")],
+            fieldbackground=[("disabled", DISABLED_SURFACE), ("readonly", PANEL)],
+            foreground=[("disabled", DISABLED_TEXT)],
         )
 
     style.configure(
         "TCombobox", fieldbackground=PANEL, background=PANEL, foreground=INK,
-        bordercolor="#d1d1d1", lightcolor="#d1d1d1", darkcolor="#d1d1d1",
+        bordercolor=FIELD_BORDER, lightcolor=FIELD_BORDER, darkcolor=FIELD_BORDER,
         arrowcolor=INK_SOFT, arrowsize=14, padding=(8, 5),
     )
     style.map(
         "TCombobox",
-        fieldbackground=[("readonly", PANEL), ("disabled", "#f5f5f5")],
+        fieldbackground=[("readonly", PANEL), ("disabled", DISABLED_SURFACE)],
         bordercolor=[("focus", ACCENT)],
         lightcolor=[("focus", ACCENT)],
         darkcolor=[("focus", ACCENT)],
-        foreground=[("disabled", "#a0a0a0")],
+        foreground=[("disabled", DISABLED_TEXT)],
         arrowcolor=[("active", ACCENT)],
     )
 
@@ -303,22 +340,22 @@ def apply(root: tk.Misc) -> Theme:
         borderwidth=0, rowheight=30, font=theme.body,
     )
     style.configure(
-        "Treeview.Heading", background="#fbfbfb", foreground=MUTED, relief="flat",
+        "Treeview.Heading", background=BTN_SURFACE, foreground=MUTED, relief="flat",
         borderwidth=0, padding=(10, 8), font=theme.small_bold,
     )
     style.map("Treeview", background=[("selected", ACCENT_SOFT)], foreground=[("selected", INK)])
-    style.map("Treeview.Heading", background=[("active", "#f0f0f0")])
+    style.map("Treeview.Heading", background=[("active", HOVER_SURFACE)])
 
     style.configure(
-        "Accent.Horizontal.TProgressbar", troughcolor="#e5e5e5", background=ACCENT,
-        bordercolor="#e5e5e5", lightcolor=ACCENT, darkcolor=ACCENT, borderwidth=0,
+        "Accent.Horizontal.TProgressbar", troughcolor=LINE, background=ACCENT,
+        bordercolor=LINE, lightcolor=ACCENT, darkcolor=ACCENT, borderwidth=0,
         thickness=4,
     )
     style.configure(
-        "Vertical.TScrollbar", background="#c9c9c9", troughcolor=PANEL,
+        "Vertical.TScrollbar", background=SCROLL_THUMB, troughcolor=PANEL,
         bordercolor=PANEL, arrowcolor=MUTED, borderwidth=0, arrowsize=12, width=10,
     )
-    style.map("Vertical.TScrollbar", background=[("active", "#a6a6a6")])
+    style.map("Vertical.TScrollbar", background=[("active", SCROLL_THUMB_HOVER)])
 
     for pattern, value in (
         ("*TCombobox*Listbox.background", PANEL),

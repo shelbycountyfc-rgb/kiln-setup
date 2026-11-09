@@ -26,7 +26,7 @@ ICONS = "Papirus-Dark"
 CURSOR = "Adwaita"
 FONT = "Noto Sans 10"
 MONO_FONT = "Noto Sans Mono 10"
-PANEL_SIZE = 34
+PANEL_SIZE = 30
 
 WALLPAPER_DIR = "/usr/share/backgrounds/kiln"
 WALLPAPERS = ("kiln-001-aurora.png", "kiln-002-grid.png", "kiln-003-ember.png")
@@ -72,7 +72,7 @@ _XFWM4 = """<?xml version="1.0" encoding="UTF-8"?>
     <property name="snap_to_border" type="bool" value="true"/>
     <property name="snap_to_windows" type="bool" value="true"/>
     <property name="wrap_windows" type="bool" value="true"/>
-    <property name="button_layout" type="string" value="O|SHMC"/>
+    <property name="button_layout" type="string" value="|HMC"/>
     <property name="workspace_count" type="int" value="4"/>
   </property>
 </channel>
@@ -89,6 +89,7 @@ _PANEL = """<?xml version="1.0" encoding="UTF-8"?>
       <property name="position-locked" type="bool" value="true"/>
       <property name="length" type="uint" value="100"/>
       <property name="size" type="uint" value="%d"/>
+      <property name="autohide-behavior" type="uint" value="0"/>
       <property name="background-style" type="uint" value="1"/>
       <property name="background-rgba" type="array">
         <value type="double" value="0.031373"/>
@@ -154,6 +155,22 @@ _SESSION = """<?xml version="1.0" encoding="UTF-8"?>
 </channel>
 """
 
+#: Thunar, set up for reading rather than rummaging: a details list, folders
+#: first, thumbnails for local files, and no hidden files or single-click.
+_THUNAR = """<?xml version="1.0" encoding="UTF-8"?>
+<channel name="thunar" version="1.0">
+  <property name="last-view" type="string" value="ThunarDetailsView"/>
+  <property name="last-icon-view-zoom-level" type="string" value="THUNAR_ZOOM_LEVEL_NORMAL"/>
+  <property name="last-details-view-zoom-level" type="string" value="THUNAR_ZOOM_LEVEL_38"/>
+  <property name="misc-date-style" type="string" value="THUNAR_DATE_STYLE_SHORT"/>
+  <property name="misc-folders-first" type="bool" value="true"/>
+  <property name="misc-thumbnail-mode" type="string" value="THUNAR_THUMBNAIL_MODE_ONLY_LOCAL"/>
+  <property name="misc-single-click" type="bool" value="false"/>
+  <property name="misc-show-delete-action" type="bool" value="true"/>
+  <property name="misc-volume-management" type="bool" value="false"/>
+</channel>
+"""
+
 _GREETER = """[greeter]
 background=%s/%s
 theme-name=%s
@@ -189,7 +206,7 @@ _DESKTOP_MONITOR = """      <property name="monitor%s" type="empty">
 _DESKTOP_TAIL = """    </property>
   </property>
   <property name="desktop-icons" type="empty">
-    <property name="style" type="int" value="2"/>
+    <property name="style" type="int" value="0"/>
     <property name="icon-size" type="uint" value="48"/>
   </property>
   <property name="last-settings-migration-version" type="uint" value="1"/>
@@ -265,6 +282,7 @@ def apply(ctx, cfg) -> list:
         ("etc/lightdm/lightdm-gtk-greeter.conf", _GREETER),
         # Xfce reads this to pick the GTK theme for apps that ask xsettings.
         ("etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-session.xml", _SESSION),
+        ("etc/xdg/xfce4/xfconf/xfce-perchannel-xml/thunar.xml", _THUNAR),
     )
     for relpath, text in files:
         written.append(ctx.write_target(relpath, text))

@@ -791,7 +791,7 @@ try:
         Context(Logger(None), target=_xfce_root), InstallConfig(desktop="xfce")
     )
     check(
-        len(_written) == 6 + len(xfce.wallpapers()),
+        len(_written) == 7 + len(xfce.wallpapers()),
         "the look writes the theme, the window manager, the panel, the desktop, "
         "the session and the greeter, and copies the wallpapers: %d files"
         % (len(_written),),
@@ -808,7 +808,7 @@ try:
     )
     for _channel in (
         "xsettings.xml", "xfwm4.xml", "xfce4-panel.xml", "xfce4-desktop.xml",
-        "xfce4-session.xml",
+        "xfce4-session.xml", "thunar.xml",
     ):
         try:
             element_tree.parse(os.path.join(_channel_dir, _channel))
@@ -816,9 +816,11 @@ try:
             check(False, "%s is valid XML: %s" % (_channel, _error))
         else:
             check(True, "%s is valid XML that Xfce reads as a channel" % _channel)
-    _desktop = open(
-        os.path.join(_channel_dir, "xfce4-desktop.xml"), encoding="utf-8"
-    ).read()
+    _panel_xml = os.path.join(_channel_dir, "xfce4-panel.xml")
+    _desktop_xml = os.path.join(_channel_dir, "xfce4-desktop.xml")
+    _xfwm_xml = os.path.join(_channel_dir, "xfwm4.xml")
+    _thunar_xml = os.path.join(_channel_dir, "thunar.xml")
+    _desktop = open(_desktop_xml, encoding="utf-8").read()
     check(
         xfce.DEFAULT_WALLPAPER in _desktop and "monitor0" in _desktop,
         "the desktop points at a wallpaper that exists, on the monitor names "
@@ -830,6 +832,37 @@ try:
     check(
         "background-rgba" in _panel and "plugin-ids" in _panel,
         "the panel is dark and carries plugins instead of being left empty",
+    )
+
+    def _xfconf_value(path, names):
+        node = element_tree.parse(path).getroot()
+        for name in names:
+            node = node.find("property[@name='%s']" % name)
+            if node is None:
+                return None
+        return node.get("value")
+
+    _panel_size = _xfconf_value(_panel_xml, ["panels", "panel-1", "size"])
+    check(
+        _panel_size == "30",
+        "the panel is a slim 30px bar instead of a thick slab: %r" % (_panel_size,),
+    )
+    _icons_style = _xfconf_value(_desktop_xml, ["desktop-icons", "style"])
+    check(
+        _icons_style == "0",
+        "the desktop shows no icons, so the wallpaper is the desktop: %r"
+        % (_icons_style,),
+    )
+    _buttons = _xfconf_value(_xfwm_xml, ["general", "button_layout"])
+    check(
+        _buttons == "|HMC",
+        "the title bar keeps only hide, maximise and close, on the right: %r"
+        % (_buttons,),
+    )
+    _view = _xfconf_value(_thunar_xml, ["last-view"])
+    check(
+        _view == "ThunarDetailsView",
+        "Thunar opens as a clean details list: %r" % (_view,),
     )
     check(
         xfce.apply(
@@ -848,6 +881,39 @@ check(
     "xfce.apply(ctx, self.cfg)" in _orchestrator_source,
     "the installation runs the look for an Xfce install",
 )
+
+# -- the look is clean: text has contrast, and nothing bypasses the palette -----
+for _fg, _bg, _label in (
+    (theme_module.INK, theme_module.PANEL, "body text on the content sheet"),
+    (theme_module.MUTED, theme_module.PANEL, "secondary text"),
+    (theme_module.FAINT, theme_module.PANEL, "the faintest label"),
+    (theme_module.RAIL_FAINT, theme_module.RAIL, "the rail's footer"),
+    ("#ffffff", theme_module.ACCENT, "a white label on the primary button"),
+    (theme_module.OK, theme_module.PANEL, "success text"),
+    (theme_module.WARN, theme_module.PANEL, "warning text"),
+    (theme_module.FAIL, theme_module.PANEL, "failure text"),
+    (theme_module.FAIL, theme_module.FAIL_SOFT, "failure text on its banner"),
+    (theme_module.WARN, theme_module.WARN_SOFT, "warning text on its banner"),
+    (theme_module.OK, theme_module.OK_SOFT, "success text on its banner"),
+):
+    _ratio = theme_module.contrast(_fg, _bg)
+    check(
+        _ratio >= 4.5,
+        "%s has 4.5:1 contrast: %.2f:1 (%s on %s)"
+        % (_label, _ratio, _fg, _bg),
+    )
+
+_gui_widgets = open(
+    os.path.join(ROOT, "installer", "gui", "widgets.py"), encoding="utf-8"
+).read()
+for _stray in (
+    "#fde7e9", "#a4262c", "#fff4ce", "#9d5d00", "#dff6dd", "#f0f6fc",
+    "#8a8a8a", "#c7c7c7",
+):
+    check(
+        _stray not in _gui_widgets,
+        "the widgets draw with the palette, not %s of their own" % _stray,
+    )
 
 print("\n%s: %d failure(s)"
       % ("INSTALLER CHECK PASS" if not failures else "INSTALLER CHECK FAIL", len(failures)))
