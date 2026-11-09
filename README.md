@@ -178,15 +178,17 @@ device, usually the installed disk's own GRUB.  Check these in order:
   not, and the stick has to be written again.  If a rewritten stick still
   fails there, try another port (USB 2.0 on an older machine) or another stick
   and boot the medium as UEFI instead, which uses systemd-boot and never reads
-  syslinux modules.  The BIOS entry called "Boot existing OS" is `chain.c32`
-  too and is not the installer: the entry to pick is "Kiln Setup - install
-  Arch Linux".
+  syslinux modules.  The menu entry "Boot the installed system" hands the boot
+  to the next boot device with `LOCALBOOT`, so it only finds the new system
+  when the medium is out of the way; it is not the installer.  The entry to
+  pick is "Kiln Setup - install Arch Linux".
 - **The same error straight after an installation.**  The installed system
   gets GRUB on legacy BIOS and systemd-boot on UEFI, never syslinux, so a
   com32 message after rebooting is the stick starting again because it is
-  still plugged in and still first in the boot order.  "Boot existing OS" on
-  the medium does not start the new installation: it chainloads the disk with
-  `chain.c32`, and on a stick that cannot be read there it fails instead.
+  still plugged in and still first in the boot order.  The medium's "Boot the
+  installed system" entry hands the boot to the next device with `LOCALBOOT`
+  and reads nothing from the stick, so with the stick first it simply reaches
+  the stick again; with the stick out or the disk first, it reaches Arch.
   Remove the stick, or choose the internal disk by name in the firmware boot
   menu, and the new system starts through its own boot loader.  If it then
   does not start, the disk is the question, not this message: check

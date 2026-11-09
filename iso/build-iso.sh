@@ -93,6 +93,27 @@ PROFILE="$WORK_DIR/profile"
 log "copying the profile to $PROFILE"
 cp -a "$PROFILE_SRC" "$PROFILE"
 
+# The BIOS menu's own "Boot existing OS" loads chain.c32, a module that has to
+# be read out of the medium before the disk can be started.  On a medium the
+# firmware reads badly that read is where the boot stops, with "failed to load
+# com32 file chain.c32" instead of the system that was just installed.
+# LOCALBOOT belongs to the boot loader itself, so the hand-over needs nothing
+# from the file system; localboot.awk rewrites that one entry and leaves the
+# rest of the menu alone.
+retarget_localboot() {
+  local cfg="$PROFILE/syslinux/archiso_tail.cfg"
+  [[ -f "$cfg" ]] || return 0
+  awk -f "$SCRIPT_DIR/localboot.awk" "$cfg" > "$cfg.new" \
+    || die "could not rewrite $cfg"
+  mv "$cfg.new" "$cfg"
+  grep -q '^LOCALBOOT ' "$cfg" \
+    || die "the BIOS menu has no local-boot entry, so the installed system could not be started from it"
+  if grep -q 'COM32 chain' "$cfg"; then
+    die "the BIOS menu still loads chain.c32 to start the installed system"
+  fi
+  log "the BIOS menu starts the installed system with LOCALBOOT, not chain.c32"
+}
+
 # mkarchiso validates the boot configuration of the profile before it builds:
 # without efiboot/ and syslinux/ it aborts with "directory is missing".  The
 # menu files are taken from the releng profile that ships with the installed
@@ -113,6 +134,7 @@ seed_boot_configs() {
     | while read -r menu; do
         sed -i 's/Arch Linux install medium/Kiln Setup - install Arch Linux/g' "$menu"
       done
+  retarget_localboot
   # Keep the kernel messages. With 'quiet' a boot that ends in the emergency
   # shell looks like a blank screen, and this medium has to be usable for
   # finding out what went wrong.

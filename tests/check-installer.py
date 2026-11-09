@@ -573,6 +573,51 @@ check(
     % (cfg_no_swap.disk_errors(64 * GIB),),
 )
 
+tail_src = """LABEL existing
+TEXT HELP
+Boot an existing operating system.
+ENDTEXT
+MENU LABEL Boot existing OS
+COM32 chain.c32
+APPEND hd0 0
+
+LABEL memtest
+MENU LABEL Run Memtest86+ (RAM test)
+LINUX /boot/memtest86+/memtest
+
+LABEL reboot
+MENU LABEL Reboot
+COM32 reboot.c32
+"""
+with tempfile.TemporaryDirectory() as tmp:
+    source = os.path.join(tmp, "archiso_tail.cfg")
+    with open(source, "w", encoding="utf-8") as handle:
+        handle.write(tail_src)
+    try:
+        written = subprocess.run(
+            ["awk", "-f", os.path.join(ROOT, "iso", "localboot.awk"), source],
+            capture_output=True, text=True, check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        written = None
+check(written is not None, "awk can rewrite the BIOS menu (awk is installed)")
+if written is not None:
+    check("LOCALBOOT -1" in written,
+          "the BIOS hand-over is LOCALBOOT: %r" % (written,))
+    check("chain.c32" not in written,
+          "nothing is read off the medium to start the installed system")
+    check("LABEL memtest" in written and "memtest86+" in written
+          and 'COM32 reboot.c32' in written,
+          "every other menu entry survives the rewrite: %r" % (written,))
+    check("Boot existing OS" not in written,
+          "the entry no longer claims to boot an existing OS while loading a module")
+
+build_script = open(os.path.join(ROOT, "iso", "build-iso.sh"), encoding="utf-8").read()
+check(
+    "retarget_localboot" in build_script and "localboot.awk" in build_script,
+    "the build applies the local-boot rewrite to the profile it builds",
+)
+
 print("\n%s: %d failure(s)"
       % ("INSTALLER CHECK PASS" if not failures else "INSTALLER CHECK FAIL", len(failures)))
 sys.exit(1 if failures else 0)
