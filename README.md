@@ -368,7 +368,8 @@ disk(s) -> mdadm array -> LUKS2 container -> LVM volume group -> ext4/xfs/btrfs 
 
 ## The Xfce desktop: the Kiln look
 
-Choosing Xfce installs a desktop that is already set up, not the grey default:
+The desktop chooser lists this as **Xfce (Kiln look)**, and choosing it installs a
+desktop that is already set up, not the grey default:
 
 - **Theme and icons** — Materia-dark for GTK and the window borders,
   Papirus-Dark for icons, Noto Sans 10 as the font. Both themes are packages in

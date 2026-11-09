@@ -9,7 +9,11 @@ DESKTOPS = {
     "minimal": ("No desktop", "A console system. Add a desktop later if you want one."),
     "gnome": ("GNOME", "Modern, touch-friendly desktop with the Activities overview."),
     "kde": ("KDE Plasma", "Highly configurable desktop, closest to a Windows layout."),
-    "xfce": ("Xfce", "Light and familiar, good on older machines."),
+    "xfce": (
+        "Xfce (Kiln look)",
+        "Light and familiar, and already styled: Kiln's theme, wallpapers and "
+        "panel rather than the grey default. Good on older machines.",
+    ),
     "cinnamon": ("Cinnamon", "Traditional layout with a taskbar and a menu."),
     "mate": ("MATE", "The classic GNOME 2 desktop, still maintained."),
     "lxqt": ("LXQt", "Very light Qt desktop for modest hardware."),
