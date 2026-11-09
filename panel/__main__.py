@@ -31,7 +31,7 @@ def _frame_label(frame) -> str:
     """``panel/pages.py:812``: the path as it reads beside /opt/kiln-setup."""
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     try:
-        path = os.path.relpath(os.path.abspath(frame.filename), os.path.dirname(root))
+        path = os.path.relpath(os.path.abspath(frame.filename), root)
     except ValueError:  # a different drive on Windows
         path = os.path.basename(frame.filename)
     return "%s:%d" % (path, frame.lineno)
