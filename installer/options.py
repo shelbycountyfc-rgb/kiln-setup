@@ -113,7 +113,12 @@ def desktop_packages(name: str) -> list:
         "minimal": [],
         "gnome": ["gnome", "gnome-tweaks", "gdm"],
         "kde": ["plasma-meta", "kde-applications-meta", "sddm"],
-        "xfce": ["xfce4", "xfce4-goodies", "lightdm", "lightdm-gtk-greeter"],
+        # Xfce ships plain, so the Kiln look comes with it: Materia-dark for GTK
+        # and the window borders, Papirus-Dark for icons (installer/xfce.py).
+        "xfce": [
+            "xfce4", "xfce4-goodies", "lightdm", "lightdm-gtk-greeter",
+            "materia-gtk-theme", "papirus-icon-theme",
+        ],
         "cinnamon": ["cinnamon", "lightdm", "lightdm-gtk-greeter"],
         "mate": ["mate", "mate-extra", "lightdm", "lightdm-gtk-greeter"],
         "lxqt": ["lxqt", "sddm"],

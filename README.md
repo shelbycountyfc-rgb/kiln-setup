@@ -366,6 +366,38 @@ disk(s) -> mdadm array -> LUKS2 container -> LVM volume group -> ext4/xfs/btrfs 
   by default, and out-of-tree drivers built later would refuse to load until
   they are signed too.
 
+## The Xfce desktop: the Kiln look
+
+Choosing Xfce installs a desktop that is already set up, not the grey default:
+
+- **Theme and icons** — Materia-dark for GTK and the window borders,
+  Papirus-Dark for icons, Noto Sans 10 as the font. Both themes are packages in
+  `[extra]` (`materia-gtk-theme`, `papirus-icon-theme`), added to the Xfce
+  package list in
+  `installer/options.py`, so they are installed from the repositories and
+  carry their own licences (GPL-3.0).
+- **Panel** — one dark bar across the top with the applications menu, a terminal
+  launcher, grouped window buttons, a tray and the clock, written as the Xfce
+  default so every account starts with it.
+- **Wallpapers** — three 2560x1440 images drawn by this repository, not
+  downloaded: `kiln-001-aurora.png`, `kiln-002-grid.png` and
+  `kiln-003-ember.png`, shipping in `installer/assets/wallpapers` and copied to
+  `/usr/share/backgrounds/kiln` in the new system, so the look needs no network
+  at all. Redraw them with:
+
+  ```bash
+  python3 iso/wallpapers/make-wallpapers.py
+  ```
+
+- **Login screen** — `lightdm-gtk-greeter` gets the same wallpaper and theme, so
+  the first thing the machine shows matches the desktop.
+
+The settings are files under `/etc/xdg/xfce4/xfconf/xfce-perchannel-xml/` plus
+`/etc/lightdm/lightdm-gtk-greeter.conf`, written by `installer/xfce.py` at the
+end of the installation. Because they are system defaults, an account created
+later gets the same desktop at its first login. Pick another wallpaper in
+Settings → Desktop; the other two are beside the first one.
+
 ## Secure Boot, the AUR and other architectures
 
 - **Secure Boot** — `sbctl` creates keys, signs the kernel, the initramfs and the

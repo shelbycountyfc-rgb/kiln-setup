@@ -746,6 +746,109 @@ check(
     "without it the rows were drawn but did nothing",
 )
 
+# -- the Xfce desktop gets the Kiln look ---------------------------------------
+import shutil  # noqa: E402
+import struct as struct_module  # noqa: E402
+import tempfile  # noqa: E402
+import xml.etree.ElementTree as element_tree  # noqa: E402
+
+from installer import options as options_module  # noqa: E402
+from installer import xfce  # noqa: E402
+from installer.context import Context, Logger  # noqa: E402
+
+check(
+    xfce.THEME == "Materia-dark" and xfce.ICONS == "Papirus-Dark",
+    "the Xfce look is a dark GTK theme with the Papirus icon set: %r, %r"
+    % (xfce.THEME, xfce.ICONS),
+)
+xfce_packages = options_module.desktop_packages("xfce")
+check(
+    "materia-gtk-theme" in xfce_packages and "papirus-icon-theme" in xfce_packages,
+    "an Xfce install carries the theme and the icons it is told to use: %r"
+    % (xfce_packages,),
+)
+check(
+    set(xfce.wallpapers()) >= set(xfce.WALLPAPERS),
+    "the wallpapers the desktop points at travel inside the package: %r"
+    % (xfce.wallpapers(),),
+)
+for _name in xfce.WALLPAPERS:
+    with open(os.path.join(xfce.wallpaper_source(), _name), "rb") as _handle:
+        _header = _handle.read(24)
+    check(
+        _header[:8] == b"\x89PNG\r\n\x1a\n",
+        "%s is a PNG" % _name,
+    )
+    check(
+        struct_module.unpack(">II", _header[16:24]) == (2560, 1440),
+        "%s is a 2560x1440 wallpaper, not a placeholder: %r"
+        % (_name, struct_module.unpack(">II", _header[16:24])),
+    )
+
+_xfce_root = tempfile.mkdtemp(prefix="kiln-xfce-")
+try:
+    _written = xfce.apply(
+        Context(Logger(None), target=_xfce_root), InstallConfig(desktop="xfce")
+    )
+    check(
+        len(_written) == 6 + len(xfce.wallpapers()),
+        "the look writes the theme, the window manager, the panel, the desktop, "
+        "the session and the greeter, and copies the wallpapers: %d files"
+        % (len(_written),),
+    )
+    for _name in xfce.WALLPAPERS:
+        check(
+            os.path.isfile(
+                os.path.join(_xfce_root, "usr/share/backgrounds/kiln", _name)
+            ),
+            "the wallpaper is copied into the new system: %s" % _name,
+        )
+    _channel_dir = os.path.join(
+        _xfce_root, "etc/xdg/xfce4/xfconf/xfce-perchannel-xml"
+    )
+    for _channel in (
+        "xsettings.xml", "xfwm4.xml", "xfce4-panel.xml", "xfce4-desktop.xml",
+        "xfce4-session.xml",
+    ):
+        try:
+            element_tree.parse(os.path.join(_channel_dir, _channel))
+        except Exception as _error:
+            check(False, "%s is valid XML: %s" % (_channel, _error))
+        else:
+            check(True, "%s is valid XML that Xfce reads as a channel" % _channel)
+    _desktop = open(
+        os.path.join(_channel_dir, "xfce4-desktop.xml"), encoding="utf-8"
+    ).read()
+    check(
+        xfce.DEFAULT_WALLPAPER in _desktop and "monitor0" in _desktop,
+        "the desktop points at a wallpaper that exists, on the monitor names "
+        "Xfce uses",
+    )
+    _panel = open(
+        os.path.join(_channel_dir, "xfce4-panel.xml"), encoding="utf-8"
+    ).read()
+    check(
+        "background-rgba" in _panel and "plugin-ids" in _panel,
+        "the panel is dark and carries plugins instead of being left empty",
+    )
+    check(
+        xfce.apply(
+            Context(Logger(None), target=_xfce_root), InstallConfig(desktop="kde")
+        )
+        == [],
+        "another desktop gets none of it",
+    )
+finally:
+    shutil.rmtree(_xfce_root, ignore_errors=True)
+
+_orchestrator_source = open(
+    os.path.join(ROOT, "installer", "orchestrator.py"), encoding="utf-8"
+).read()
+check(
+    "xfce.apply(ctx, self.cfg)" in _orchestrator_source,
+    "the installation runs the look for an Xfce install",
+)
+
 print("\n%s: %d failure(s)"
       % ("INSTALLER CHECK PASS" if not failures else "INSTALLER CHECK FAIL", len(failures)))
 sys.exit(1 if failures else 0)

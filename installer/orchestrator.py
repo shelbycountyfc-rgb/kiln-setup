@@ -18,7 +18,7 @@ import threading
 import time
 import traceback
 
-from . import aur, bootloader, disk, network, packages, system
+from . import aur, bootloader, disk, network, packages, system, xfce
 from . import hardening
 from .config import InstallConfig
 from .context import Context, Logger
@@ -378,6 +378,9 @@ class Session:
 
     def _finish(self) -> None:
         ctx = self.ctx
+        if (self.cfg.desktop or "").lower() == "xfce":
+            self._substep("Giving Xfce the Kiln look")
+            xfce.apply(ctx, self.cfg)
         system.install_panel(ctx, self.cfg)
         system.copy_log(ctx, LOG_PATH)
         system.finalize(ctx)
