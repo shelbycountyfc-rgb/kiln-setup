@@ -791,7 +791,7 @@ try:
         Context(Logger(None), target=_xfce_root), InstallConfig(desktop="xfce")
     )
     check(
-        len(_written) == 7 + len(xfce.wallpapers()),
+        len(_written) == 9 + len(xfce.wallpapers()),
         "the look writes the theme, the window manager, the panel, the desktop, "
         "the session and the greeter, and copies the wallpapers: %d files"
         % (len(_written),),
@@ -864,6 +864,66 @@ try:
         _view == "ThunarDetailsView",
         "Thunar opens as a clean details list: %r" % (_view,),
     )
+    _gtk3 = open(
+        os.path.join(_xfce_root, "etc/gtk-3.0/settings.ini"), encoding="utf-8"
+    ).read()
+    check(
+        "gtk-theme-name=Materia-dark" in _gtk3
+        and "gtk-icon-theme-name=Papirus-Dark" in _gtk3
+        and "gtk-application-prefer-dark-theme=1" in _gtk3,
+        "every GTK application, not only the desktop, opens in the same dark "
+        "theme and icon set",
+    )
+    _gtk2 = open(
+        os.path.join(_xfce_root, "etc/gtk-2.0/gtkrc"), encoding="utf-8"
+    ).read()
+    check(
+        'gtk-theme-name = "Materia-dark"' in _gtk2,
+        "GTK 2 applications are not left in the stock light theme either",
+    )
+
+    # The boot menu is the first screen of the installed system.
+    from installer import bootloader as bootloader_module  # noqa: E402
+
+    _theme_root = tempfile.mkdtemp(prefix="kiln-grub-")
+    try:
+        _theme_written = bootloader_module.write_grub_theme(
+            Context(Logger(None), target=_theme_root)
+        )
+        _theme_txt = os.path.join(
+            _theme_root, "boot/grub/themes/kiln/theme.txt"
+        )
+        _theme_text = open(_theme_txt, encoding="utf-8").read()
+        check(
+            'desktop-image: "background.png"' in _theme_text
+            and "+ boot_menu" in _theme_text
+            and _theme_text.count("{") == _theme_text.count("}"),
+            "the GRUB menu has a theme with balanced blocks, so GRUB can read it",
+        )
+        check(
+            os.path.isfile(
+                os.path.join(_theme_root, "boot/grub/themes/kiln/background.png")
+            ),
+            "the wallpaper behind the boot menu is written next to it: %r"
+            % (_theme_written,),
+        )
+        check(
+            "GRUB_THEME" in bootloader_module.grub_defaults(
+                InstallConfig(efi=True, bootloader="grub"), None, "AuthenticAMD"
+            ),
+            "the installed GRUB is told to use the theme",
+        )
+        check(
+            "GRUB_THEME" not in bootloader_module.grub_defaults(
+                InstallConfig(efi=True, bootloader="grub", encrypt_boot=True),
+                None,
+                "AuthenticAMD",
+            ),
+            "an encrypted /boot keeps the plain menu rather than pointing at a "
+            "theme that is not on that volume",
+        )
+    finally:
+        shutil.rmtree(_theme_root, ignore_errors=True)
     check(
         xfce.apply(
             Context(Logger(None), target=_xfce_root), InstallConfig(desktop="kde")

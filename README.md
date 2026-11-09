@@ -391,6 +391,16 @@ Choosing Xfce installs a desktop that is already set up, not the grey default:
 
 - **Login screen** — `lightdm-gtk-greeter` gets the same wallpaper and theme, so
   the first thing the machine shows matches the desktop.
+- **Every other GTK application** — `/etc/gtk-3.0/settings.ini` and
+  `/etc/gtk-2.0/gtkrc` carry the same theme, icons and font with
+  `gtk-application-prefer-dark-theme=1`, so a GTK program started from a
+  terminal or a file chooser does not open in the stock light theme.
+- **The boot menu** — GRUB is given `/boot/grub/themes/kiln/theme.txt` and the
+  wallpaper behind it: dark background, cyan highlight, the entries in the
+  built-in font. Nothing is named that the image cannot draw, because a theme
+  that points at a missing font stops GRUB drawing the menu at all. An encrypted
+  `/boot` keeps the plain menu, since its theme would live on a volume GRUB
+  cannot read before unlock.
 
 The settings are files under `/etc/xdg/xfce4/xfconf/xfce-perchannel-xml/` plus
 `/etc/lightdm/lightdm-gtk-greeter.conf`, written by `installer/xfce.py` at the

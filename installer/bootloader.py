@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import re
 
-from . import hardening
+from . import hardening, xfce
 from .config import InstallConfig
 from .context import Context, uuid_of
 from .disk import DiskPlan
@@ -37,6 +37,48 @@ GRUB_TERMINAL_INPUT=console
 GRUB_GFXMODE=auto
 GRUB_GFXPAYLOAD_LINUX=keep
 """
+
+#: The menu GRUB shows before the system starts.  GRUB reads theme.txt, and
+#: every colour here matches the desktop's wallpapers so the first screen and
+#: the last one look like the same product.  No fonts are named: naming one
+#: that is not installed stops GRUB drawing the menu at all, and the built-in
+#: font is what a rescue menu needs anyway.
+GRUB_THEME_FILE = "/boot/grub/themes/kiln/theme.txt"
+GRUB_THEME_TEXT = """\
+# Written by Kiln Setup, an unofficial installer for Arch Linux.
+desktop-image: "background.png"
+desktop-color: "#0b0e12"
+title-text: "Arch Linux"
+title-color: "#eaf4f8"
+
++ boot_menu {
+    left = 20%%
+    top = 34%%
+    width = 60%%
+    height = 40%%
+    item_color = "#c9d3dc"
+    selected_item_color = "#8fe3f5"
+    item_height = 32
+    item_spacing = 8
+    item_padding = 6
+}
+"""
+
+
+def write_grub_theme(ctx: Context) -> list:
+    """Put the menu theme and the wallpaper behind it into the new /boot."""
+    theme_dir = ctx.target_path("boot/grub/themes/kiln")
+    written = [ctx.write_target("boot/grub/themes/kiln/theme.txt", GRUB_THEME_TEXT)]
+    source = os.path.join(xfce.wallpaper_source(), xfce.DEFAULT_WALLPAPER)
+    if os.path.isfile(source):
+        background = os.path.join(theme_dir, "background.png")
+        if not ctx.dry_run:
+            os.makedirs(theme_dir, exist_ok=True)
+            with open(source, "rb") as reader, open(background, "wb") as writer:
+                writer.write(reader.read())
+        written.append(background)
+    return written
+
 
 #: Make the firmware boot the entry grub-install has just created.  A machine
 #: that already had Linux often keeps an older ESP first in BootOrder, and that
@@ -533,6 +575,11 @@ def grub_defaults(
     are on the unencrypted ESP, so none of this applies.
     """
     header = GRUB_HEADER.replace("{os_prober}", "false" if cfg.alongside else "true")
+    if not cfg.encrypt_boot:
+        # An encrypted /boot is mounted at /boot/efi while installing, so the
+        # theme would sit where the menu cannot find it; the menu stays plain
+        # there instead of pointing at a file that is not on that volume.
+        header += 'GRUB_THEME="%s"\n' % GRUB_THEME_FILE
     # GRUB has to open the container itself when the kernel lives inside it: on
     # legacy BIOS /boot cannot be anywhere else, and with an encrypted /boot the
     # menu and the kernel are both on the encrypted file system.
@@ -589,6 +636,8 @@ def grub_defaults(
 
 
 def install_grub(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
+    if not cfg.encrypt_boot:
+        write_grub_theme(ctx)
     ctx.write_target(
         "etc/default/grub",
         grub_defaults(cfg, layout, getattr(ctx.hardware, "cpu_vendor", "")),

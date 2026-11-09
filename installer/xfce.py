@@ -155,6 +155,24 @@ _SESSION = """<?xml version="1.0" encoding="UTF-8"?>
 </channel>
 """
 
+#: GTK's own settings, which apply to every GTK application on the machine and
+#: not only to the Xfce desktop: without them GIMP, a file chooser in another
+#: toolkit and anything launched from a terminal open in the stock light theme.
+_GTK3 = """[Settings]
+gtk-theme-name=%s
+gtk-icon-theme-name=%s
+gtk-font-name=%s
+gtk-cursor-theme-name=%s
+gtk-cursor-theme-size=24
+gtk-application-prefer-dark-theme=1
+""" % (THEME, ICONS, FONT, CURSOR)
+
+_GTK2 = """# Written by Kiln Setup: GTK 2 applications take the same look.
+gtk-theme-name = "%s"
+gtk-icon-theme-name = "%s"
+gtk-font-name = "%s"
+""" % (THEME, ICONS, FONT)
+
 #: Thunar, set up for reading rather than rummaging: a details list, folders
 #: first, thumbnails for local files, and no hidden files or single-click.
 _THUNAR = """<?xml version="1.0" encoding="UTF-8"?>
@@ -283,6 +301,8 @@ def apply(ctx, cfg) -> list:
         # Xfce reads this to pick the GTK theme for apps that ask xsettings.
         ("etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-session.xml", _SESSION),
         ("etc/xdg/xfce4/xfconf/xfce-perchannel-xml/thunar.xml", _THUNAR),
+        ("etc/gtk-3.0/settings.ini", _GTK3),
+        ("etc/gtk-2.0/gtkrc", _GTK2),
     )
     for relpath, text in files:
         written.append(ctx.write_target(relpath, text))
