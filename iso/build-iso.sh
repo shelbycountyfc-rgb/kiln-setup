@@ -187,12 +187,17 @@ cp -a "$REPO_ROOT/installer" "$PROFILE/airootfs/opt/kiln-setup/"
 # copied into the installed system during the finish phase: it has to be on the
 # medium even though it is not what the medium runs.
 cp -a "$REPO_ROOT/panel" "$PROFILE/airootfs/opt/kiln-setup/"
+# The package manager is installed with the panel and shares the same tree; it is
+# on the medium for the same reason, not because the medium runs it.
+cp -a "$REPO_ROOT/pkgmgr" "$PROFILE/airootfs/opt/kiln-setup/"
 cp -a "$REPO_ROOT/README.md" "$PROFILE/airootfs/opt/kiln-setup/"
 find "$PROFILE/airootfs/opt/kiln-setup" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
 [[ -f "$PROFILE/airootfs/opt/kiln-setup/installer/__main__.py" ]] \
   || die "the installer package did not get copied into the profile"
 [[ -f "$PROFILE/airootfs/opt/kiln-setup/panel/__main__.py" ]] \
   || die "the control panel did not get copied into the profile"
+[[ -f "$PROFILE/airootfs/opt/kiln-setup/pkgmgr/__main__.py" ]] \
+  || die "the package manager did not get copied into the profile"
 
 chmod 0755 \
   "$PROFILE/airootfs/usr/local/bin/kiln-setup-session" \
@@ -203,6 +208,7 @@ chmod 0755 \
 if command -v python3 >/dev/null 2>&1; then
   log "checking the installer sources"
   python3 -m compileall -q "$PROFILE/airootfs/opt/kiln-setup/installer" \
+    "$PROFILE/airootfs/opt/kiln-setup/pkgmgr" \
     || die "the installer sources do not compile"
 else
   warn "python3 is not installed on the build host; skipping the source check"
@@ -316,6 +322,8 @@ if command -v xorriso >/dev/null 2>&1; then
       || die "the installer launcher is not inside the live root"
     grep -q 'opt/kiln-setup/panel/app.py' <<<"$live_listing" \
       || die "the control panel is not inside the live root"
+    grep -q 'opt/kiln-setup/pkgmgr/app.py' <<<"$live_listing" \
+      || die "the package manager is not inside the live root"
     # An Xfce install copies these into the new system: without them the
     # desktop falls back to a plain colour and the look is gone.
     grep -q 'opt/kiln-setup/installer/assets/wallpapers/kiln-001-aurora.png' <<<"$live_listing" \

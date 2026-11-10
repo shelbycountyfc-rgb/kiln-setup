@@ -138,6 +138,43 @@ executed as an argument list through `pkexec` (the polkit prompt) with `sudo -n`
 as the fallback. The panel runs as your user and never asks for the root
 password itself.
 
+## The package manager
+
+Installed with the panel at `/opt/kiln-setup/pkgmgr`, launched as
+`kiln-packages` or from the desktop menu ("Kiln Package Manager"). It is one
+window for the two kinds of package on Arch, which are not the same thing:
+
+| Kind | Where it comes from | How it is installed |
+| --- | --- | --- |
+| Repository package | `core`, `extra`, `multilib` | `pacman -S --needed` through `pkexec` (the polkit prompt) |
+| AUR package | an AUR recipe, not a binary | `yay -S`, built by `makepkg` as you in a terminal window |
+
+**Why the AUR needs a terminal.** `makepkg` refuses to build as root and needs
+`sudo` for the final install, so the build opens in a terminal emulator
+(`xfce4-terminal`, `konsole`, `xterm` or `gnome-terminal`, whichever is
+installed). A window owned by the app has no terminal for `sudo` to ask in, so
+it does not pretend to do that part quietly.
+
+**yay is not in the repositories.** When it is missing the window offers "Set
+up yay": it installs `base-devel` and `git` with pacman, then clones
+`https://aur.archlinux.org/yay.git` and runs `makepkg -si` in a terminal. Until
+then AUR rows are still listed and marked, and the AUR half of a search is
+skipped rather than silently empty.
+
+- The scope box decides what a search looks at: **Installed** (`pacman -Q`, with
+  `pacman -Qm` marking the AUR packages), **Repositories** (`pacman -Ss`),
+  **AUR** (`yay -Ss --aur`) or **Everything**, the default.
+- Results carry their source. A name that exists in a repository and in the AUR
+  is shown once, as the repository package: that is the one pacman installs.
+- **Install**, **Remove** (`pacman -Rns`) and **Upgrade installed** (a full
+  `pacman -Syu`, never a partial upgrade) are the actions; double-clicking a row
+  installs it.
+- `kiln-packages --check` prints what the machine has (pacman, yay, pkexec or
+  sudo, terminal) without opening a window; `kiln-packages --search vim`
+  searches in the terminal. The launcher logs to
+  `~/.local/state/kiln-packages.log` and shows a dialog when it cannot start,
+  the same way the panel's does.
+
 ### If selecting the boot entry returns to the boot menu
 
 That bounce is the firmware refusing the medium and falling through to the next

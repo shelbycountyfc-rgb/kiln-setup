@@ -123,6 +123,82 @@ Categories=Settings;System;
 Keywords=kiln;pacman;settings;software;
 """
 
+#: The package manager: pacman's repositories and the AUR (through yay) in one
+#: window.  It is copied with the panel and gets its own launcher and menu entry.
+PACKAGES_LAUNCHER = """#!/bin/sh
+# Kiln Package Manager launcher.
+#
+# Same contract as the control panel's launcher: a desktop entry starts this with
+# no terminal, so a failure has to be written down and shown, while --check and
+# --version have to print where they were typed instead of into the log.
+ROOT=/opt/kiln-setup
+LOG="${XDG_STATE_HOME:-$HOME/.local/state}/kiln-packages.log"
+
+mkdir -p "$(dirname "$LOG")" 2>/dev/null
+
+case "${1:-}" in
+    --check|--version|--search|-h|--help)
+        [ -d "$ROOT/pkgmgr" ] || { echo "kiln-packages: not installed in $ROOT" >&2; exit 1; }
+        cd "$ROOT" || exit 1
+        PYTHONPATH=$ROOT
+        export PYTHONPATH
+        exec /usr/bin/python3 -m pkgmgr "$@"
+        ;;
+esac
+
+reason=""
+if [ ! -d "$ROOT/pkgmgr" ]; then
+    reason="the package manager is not installed in $ROOT"
+elif [ ! -x /usr/bin/python3 ]; then
+    reason="python3 is not installed: sudo pacman -S python tk"
+elif ! cd "$ROOT"; then
+    reason="cannot enter $ROOT"
+fi
+
+if [ -z "$reason" ]; then
+    PYTHONPATH=$ROOT
+    export PYTHONPATH
+    /usr/bin/python3 -m pkgmgr "$@" >>"$LOG" 2>&1
+    status=$?
+    [ "$status" -eq 0 ] && exit 0
+    reason="the package manager exited with status $status"
+fi
+
+{
+    echo "$(date '+%Y-%m-%d %H:%M:%S') kiln-packages: $reason"
+    tail -n 20 "$LOG" 2>/dev/null
+} >>"$LOG" 2>/dev/null
+
+message="$reason
+
+The log is $LOG
+Run 'kiln-packages --check' in a terminal for details."
+
+if command -v zenity >/dev/null 2>&1; then
+    zenity --error --title="Kiln Package Manager" --text="$message" 2>/dev/null
+elif command -v kdialog >/dev/null 2>&1; then
+    kdialog --title "Kiln Package Manager" --error "$message" 2>/dev/null
+fi
+
+echo "$message" >&2
+exit 1
+"""
+
+PACKAGES_DESKTOP = """[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Kiln Package Manager
+GenericName=Software Management
+Comment=Install pacman packages and build AUR recipes with yay
+Exec=/usr/local/bin/kiln-packages
+TryExec=/usr/local/bin/kiln-packages
+Icon=system-software-install
+Terminal=false
+StartupNotify=false
+Categories=System;PackageManager;
+Keywords=kiln;pacman;yay;aur;packages;software;
+"""
+
 
 def _uncomment_locale(text: str, locale: str) -> str:
     """Return locale.gen with ``locale`` enabled, adding it when absent."""
@@ -535,6 +611,30 @@ def install_panel(ctx: Context, cfg: InstallConfig) -> None:
         return
     ctx.write_target("usr/local/bin/kiln-panel", PANEL_LAUNCHER, mode=0o755)
     ctx.write_target("usr/share/applications/kiln-panel.desktop", PANEL_DESKTOP, mode=0o644)
+
+
+def install_package_manager(ctx: Context, cfg: InstallConfig) -> None:
+    """Give the new system the package manager and a menu entry for it.
+
+    The sources travel with the panel (``install_panel`` copies the whole
+    ``/opt/kiln-setup`` tree), so this only has to check that they arrived and
+    then write the launcher and the entry.  A menu entry that starts nothing is
+    worse than no entry at all.
+    """
+    if not ctx.dry_run and not os.path.isfile(
+        ctx.target_path("opt/kiln-setup/pkgmgr/__main__.py")
+    ):
+        ctx.log.log(
+            "the package manager is not in /opt/kiln-setup, so no menu entry was "
+            "written for it",
+            "warn",
+        )
+        return
+    ctx.log.log("installing the package manager", "step")
+    ctx.write_target("usr/local/bin/kiln-packages", PACKAGES_LAUNCHER, mode=0o755)
+    ctx.write_target(
+        "usr/share/applications/kiln-packages.desktop", PACKAGES_DESKTOP, mode=0o644
+    )
 
 
 def copy_log(ctx: Context, path: str = LOG_PATH) -> None:

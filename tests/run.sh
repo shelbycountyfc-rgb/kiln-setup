@@ -5,13 +5,16 @@ set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 
 echo "== compile"
-python3 -m compileall -q installer panel
+python3 -m compileall -q installer panel pkgmgr
 
 echo "== self-test (13 phases, dry run)"
 python3 -m installer --selftest | tail -3
 
 echo "== installer checks"
 python3 tests/check-installer.py
+
+echo "== package manager checks"
+python3 tests/check-pkgmgr.py
 
 echo "== window checks"
 if [ -n "${DISPLAY:-}" ]; then

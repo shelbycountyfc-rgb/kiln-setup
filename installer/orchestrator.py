@@ -382,6 +382,7 @@ class Session:
             self._substep("Giving Xfce the Kiln look")
             xfce.apply(ctx, self.cfg)
         system.install_panel(ctx, self.cfg)
+        system.install_package_manager(ctx, self.cfg)
         system.copy_log(ctx, LOG_PATH)
         system.finalize(ctx)
         self.logger.log("installation complete", "step")
