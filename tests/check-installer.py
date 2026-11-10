@@ -882,6 +882,45 @@ try:
         "GTK 2 applications are not left in the stock light theme either",
     )
 
+    # xfce4-session's own file defines the Failsafe session.  Replacing the file
+    # instead of merging into it made Xfce start with "Unable to determine
+    # failsafe session name" and an error dialog instead of a desktop.
+    _merge_root = tempfile.mkdtemp(prefix="kiln-session-")
+    try:
+        _merge_channel = os.path.join(
+            _merge_root,
+            "etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-session.xml",
+        )
+        os.makedirs(os.path.dirname(_merge_channel))
+        open(_merge_channel, "w", encoding="utf-8").write(
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<channel name="xfce4-session" version="1.0">\n'
+            '  <property name="sessions" type="empty">\n'
+            '    <property name="Failsafe" type="empty">\n'
+            '      <property name="Client0_Command" type="array">\n'
+            '        <value type="string" value="xfwm4"/>\n'
+            "      </property>\n"
+            "    </property>\n"
+            "  </property>\n"
+            "</channel>\n"
+        )
+        xfce.apply(
+            Context(Logger(None), target=_merge_root),
+            InstallConfig(desktop="xfce"),
+        )
+        _merged = open(_merge_channel, encoding="utf-8").read()
+        check(
+            "Failsafe" in _merged and "Client0_Command" in _merged,
+            "the session channel keeps xfce4-session's Failsafe session instead of "
+            "replacing the file that defines it",
+        )
+        check(
+            'name="SplashScreen"' in _merged,
+            "the look still disables the session splash inside that merged file",
+        )
+    finally:
+        shutil.rmtree(_merge_root, ignore_errors=True)
+
     # The boot menu is the first screen of the installed system.
     from installer import bootloader as bootloader_module  # noqa: E402
 

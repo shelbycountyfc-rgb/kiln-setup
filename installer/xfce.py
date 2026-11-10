@@ -15,6 +15,7 @@ the new system here.
 from __future__ import annotations
 
 import os
+from xml.etree import ElementTree as element_tree
 
 #: What the look is made of.  Both packages are in [extra] and options.py adds
 #: them to the Xfce package list, so an install that chose Xfce has them.
@@ -285,6 +286,51 @@ def _copy_wallpapers(ctx) -> list:
     return copied
 
 
+def _upsert_property(parent, node) -> None:
+    """Set one property, keeping the rest of the parent's children."""
+    name = node.get("name")
+    existing = next(
+        (child for child in list(parent) if child.get("name") == name), None
+    )
+    if existing is not None and node.get("type") == "empty":
+        for child in node:
+            _upsert_property(existing, child)
+        return
+    if existing is not None:
+        parent.remove(existing)
+    parent.append(node)
+
+
+def _merged_with_package_default(ctx, relpath: str, text: str) -> str:
+    """Our channel settings on top of the ones the package shipped.
+
+    Xfce reads one file per channel, so writing ours over the packaged
+    ``xfce4-session.xml`` deleted the Failsafe session that lives in the same
+    file.  The session then started with "Unable to determine failsafe session
+    name" and fell back to an error dialog.  Every property we name is replaced;
+    everything else the package put there is kept.
+    """
+    path = ctx.target_path(relpath)
+    if not os.path.isfile(path):
+        return text
+    try:
+        base = element_tree.parse(path)
+        body = text.split("?>", 1)[1] if text.lstrip().startswith("<?xml") else text
+        mine = element_tree.fromstring(body)
+    except element_tree.ParseError:
+        return text
+    root = base.getroot()
+    if root.get("name") != mine.get("name"):
+        return text
+    for node in mine:
+        _upsert_property(root, node)
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        + element_tree.tostring(root, encoding="unicode")
+        + "\n"
+    )
+
+
 def apply(ctx, cfg) -> list:
     """Write the Xfce look into the target.  Returns the files written."""
     if (getattr(cfg, "desktop", "") or "").lower() != "xfce":
@@ -305,5 +351,7 @@ def apply(ctx, cfg) -> list:
         ("etc/gtk-2.0/gtkrc", _GTK2),
     )
     for relpath, text in files:
+        if relpath.endswith(".xml"):
+            text = _merged_with_package_default(ctx, relpath, text)
         written.append(ctx.write_target(relpath, text))
     return written
