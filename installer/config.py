@@ -107,6 +107,8 @@ class InstallConfig:
     microcode: str = "auto"
     firmware: str = "auto"
     multilib: bool = True
+    #: Install the Kiln package manager (pacman and the AUR through yay).
+    package_manager: bool = True
     packages: list = field(default_factory=list)
     #: Extra kernel parameters, exactly as they should appear on the command line.
     kernel_params: str = ""
@@ -215,6 +217,7 @@ class InstallConfig:
         config.microcode = str(data.get("microcode", "auto")).strip().lower() or "auto"
         config.firmware = str(data.get("firmware", "auto")).strip().lower() or "auto"
         config.multilib = bool(data.get("multilib", True))
+        config.package_manager = bool(data.get("packageManager", True))
         config.kernel_params = str(data.get("kernelParams", "")).strip()
         config.hibernate = bool(data.get("hibernate", False))
         packages = data.get("packages") or []
@@ -599,6 +602,7 @@ class InstallConfig:
             "microcode": self.microcode,
             "firmware": self.firmware,
             "multilib": self.multilib,
+            "packageManager": self.package_manager,
             "packages": list(self.packages),
             "wifiSsid": self.wifi_ssid,
         }

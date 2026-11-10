@@ -155,6 +155,12 @@ window for the two kinds of package on Arch, which are not the same thing:
 installed). A window owned by the app has no terminal for `sudo` to ask in, so
 it does not pretend to do that part quietly.
 
+**It is part of the installation.** The Software page of the wizard has a
+"Kiln software tools" card with the package manager ticked; unticking it leaves
+it out of the new system, and an answer file can do the same with
+`"packageManager": false`. `python` and `tk` are installed either way, because
+the control panel needs them.
+
 **yay is not in the repositories.** When it is missing the window offers "Set
 up yay": it installs `base-devel` and `git` with pacman, then clones
 `https://aur.archlinux.org/yay.git` and runs `makepkg -si` in a terminal. Until

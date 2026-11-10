@@ -17,7 +17,7 @@ from unittest import mock
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from installer import system  # noqa: E402
+from installer import answers, system  # noqa: E402
 from installer.config import InstallConfig  # noqa: E402
 from installer.context import Context, Logger  # noqa: E402
 from pkgmgr import core  # noqa: E402
@@ -209,6 +209,29 @@ empty_ctx = Context(Logger(None), target=empty_root)
 system.install_package_manager(empty_ctx, InstallConfig())
 check(not os.path.exists(os.path.join(empty_root, "usr/share/applications/kiln-packages.desktop")),
       "no menu entry is written for a package manager that did not arrive")
+
+# -- part of the installation ----------------------------------------------
+check(InstallConfig().package_manager is True,
+      "a new installation includes the package manager unless it is turned off")
+check(InstallConfig.from_dict({"packageManager": False}).package_manager is False,
+      "an answer file can leave the package manager out")
+check(InstallConfig().to_public()["packageManager"] is True,
+      "the option is saved into the answers the window writes")
+check(answers.example()["packageManager"] is True,
+      "the example answers turn it on, like the window does")
+
+
+def _source(relative: str) -> str:
+    with open(os.path.join(ROOT, relative), encoding="utf-8") as handle:
+        return handle.read()
+
+
+check('"packageManager": True' in _source("installer/gui/app.py"),
+      "the window's form starts with the package manager turned on")
+check("packageManager" in _source("installer/gui/pages.py"),
+      "the Software page offers the package manager as a choice")
+check("if self.cfg.package_manager:" in _source("installer/orchestrator.py"),
+      "the installation only adds it when the option is on")
 
 # -- the command line -------------------------------------------------------
 version = subprocess.run([sys.executable, "-m", "pkgmgr", "--version"],

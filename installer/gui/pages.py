@@ -1363,6 +1363,23 @@ class SoftwarePage(Page):
             command=self._refresh_selection_count,
         ).pack(anchor="w")
 
+        tools_card = Card(
+            body, theme, "Kiln software tools",
+            "The control panel keeps services, users and the network in reach. The "
+            "package manager installs from the official repositories and builds AUR "
+            "packages with yay. Both are Tk windows, so python and tk come with them.",
+        )
+        tools_card.pack(fill="x", pady=(0, 16))
+        self.package_manager = tk.BooleanVar(
+            value=bool(form_data.get("packageManager", True))
+        )
+        ttk.Checkbutton(
+            tools_card.body,
+            text="Install the Kiln package manager (pacman and the AUR)",
+            variable=self.package_manager, style="Panel.TCheckbutton",
+            command=self._refresh_selection_count,
+        ).pack(anchor="w")
+
         aur_card = Card(
             body, theme, "AUR packages",
             "The Arch User Repository holds build recipes, not packages: each one is compiled "
@@ -1585,6 +1602,7 @@ class SoftwarePage(Page):
         form = self.app.form
         form["kernel"] = self.kernel.get()
         form["multilib"] = bool(self.multilib.get())
+        form["packageManager"] = bool(self.package_manager.get())
         form["aur"] = bool(self.aur.get())
         form["aurPackages"] = [
             name for name in re.split(r"[\s,]+", self.aur_names.get().strip()) if name

@@ -186,6 +186,7 @@ class Installer:
             "microcode": chosen["microcode"],
             "firmware": chosen["firmware"],
             "multilib": True,
+            "packageManager": True,
             "kernelParams": "",
             "hibernate": False,
             "packages": list(self.recommendation.packages),

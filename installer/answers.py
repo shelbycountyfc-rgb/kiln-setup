@@ -84,6 +84,7 @@ def example(hw=None) -> dict:
         "microcode": chosen["microcode"],
         "firmware": chosen["firmware"],
         "multilib": True,
+        "packageManager": True,
         "packages": list(recommendation.packages),
         "rootPassword": "",
         "user": {
