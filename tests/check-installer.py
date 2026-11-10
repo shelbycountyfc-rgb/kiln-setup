@@ -934,6 +934,17 @@ try:
         )
         _theme_text = open(_theme_txt, encoding="utf-8").read()
         check(
+            "%%" not in _theme_text,
+            "the GRUB theme gives percentages one sign: GRUB rejects the theme on two",
+        )
+        check(
+            "desktop-image" not in _theme_text
+            or os.path.isfile(
+                os.path.join(_theme_root, "boot/grub/themes/kiln/background.png")
+            ),
+            "GRUB is never pointed at a background image that was not written",
+        )
+        check(
             'desktop-image: "background.png"' in _theme_text
             and "+ boot_menu" in _theme_text
             and _theme_text.count("{") == _theme_text.count("}"),

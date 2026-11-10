@@ -44,18 +44,22 @@ GRUB_GFXPAYLOAD_LINUX=keep
 #: that is not installed stops GRUB drawing the menu at all, and the built-in
 #: font is what a rescue menu needs anyway.
 GRUB_THEME_FILE = "/boot/grub/themes/kiln/theme.txt"
+#: GRUB reads this before the menu is drawn and refuses the whole theme on a
+#: value it cannot parse, so the file stays to properties GRUB always has: no
+#: fonts (they would have to be shipped and found) and no image unless the
+#: wallpaper was actually copied next to it (see write_grub_theme).
+#: Percentages are written with a single sign: the text is not %-formatted.
 GRUB_THEME_TEXT = """\
 # Written by Kiln Setup, an unofficial installer for Arch Linux.
-desktop-image: "background.png"
-desktop-color: "#0b0e12"
+@BACKGROUND@desktop-color: "#0b0e12"
 title-text: "Arch Linux"
 title-color: "#eaf4f8"
 
 + boot_menu {
-    left = 20%%
-    top = 34%%
-    width = 60%%
-    height = 40%%
+    left = 20%
+    top = 34%
+    width = 60%
+    height = 40%
     item_color = "#c9d3dc"
     selected_item_color = "#8fe3f5"
     item_height = 32
@@ -68,10 +72,16 @@ title-color: "#eaf4f8"
 def write_grub_theme(ctx: Context) -> list:
     """Put the menu theme and the wallpaper behind it into the new /boot."""
     theme_dir = ctx.target_path("boot/grub/themes/kiln")
-    written = [ctx.write_target("boot/grub/themes/kiln/theme.txt", GRUB_THEME_TEXT)]
     source = os.path.join(xfce.wallpaper_source(), xfce.DEFAULT_WALLPAPER)
-    if os.path.isfile(source):
-        background = os.path.join(theme_dir, "background.png")
+    background = os.path.join(theme_dir, "background.png")
+    have_wallpaper = os.path.isfile(source)
+    # Naming an image that is not there is one of the ways GRUB fails to load a
+    # theme, so the line is only written when the copy really happens.
+    text = GRUB_THEME_TEXT.replace(
+        "@BACKGROUND@", 'desktop-image: "background.png"\n' if have_wallpaper else ""
+    )
+    written = [ctx.write_target("boot/grub/themes/kiln/theme.txt", text)]
+    if have_wallpaper:
         if not ctx.dry_run:
             os.makedirs(theme_dir, exist_ok=True)
             with open(source, "rb") as reader, open(background, "wb") as writer:
