@@ -117,7 +117,10 @@ jobs:
             out/*.iso
             out/*.iso.sha256
             out/*.iso.sha256.asc
-          fail_on_unmatched_files: true
+          # The signature only exists when a signing key is configured, so a
+          # missing .asc must not fail the release: without this a repository
+          # with no GPG_PRIVATE_KEY never published anything at all.
+          fail_on_unmatched_files: false
 
   smoke:
     name: Boot the image in QEMU
