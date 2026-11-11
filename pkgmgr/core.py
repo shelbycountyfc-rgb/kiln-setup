@@ -62,6 +62,11 @@ class Package:
             return "AUR"
         return self.repo or "local"
 
+    @property
+    def category(self) -> str:
+        """The shelf the window files this package under."""
+        return category_of(self)
+
     def __str__(self) -> str:
         return ("%s %s" % (self.name, self.version)).strip()
 
@@ -173,6 +178,93 @@ def merge(*groups) -> list:
             seen.add(package.name)
             rows.append(package)
     return rows
+
+
+# --------------------------------------------------------------------------- #
+# Categories
+# --------------------------------------------------------------------------- #
+#: The shelf headings the window groups results under, in the order it shows
+#: them.  "Other" is last because it is what nothing else describes.
+CATEGORIES = (
+    "Desktop", "Development", "Games", "Graphics", "Internet",
+    "Multimedia", "Office", "Security", "System", "Other",
+)
+
+#: What puts a package on a shelf.  Matched as whole words against the name and
+#: the description, so a codec is not caught by "code" and a game is not caught
+#: by a word that merely starts the same way.  Order is the order the shelves are
+#: shown in: the first category that matches wins.
+CATEGORY_WORDS = (
+    ("Desktop", (
+        "desktop", "window manager", "panel", "theme", "icon", "wallpaper",
+        "xfce", "xfce4", "gnome", "kde", "plasma", "lxqt", "cinnamon", "mate",
+        "wayland", "xorg", "screensaver", "greeter",
+    )),
+    ("Development", (
+        "compiler", "debugger", "editor", "code", "ide", "interpreter",
+        "programming", "python", "perl", "ruby", "rust", "golang", "java",
+        "node", "javascript", "typescript", "sdk", "build", "cmake", "make",
+        "git", "linter", "library", "framework", "parser", "vim", "emacs",
+    )),
+    ("Games", ("game", "games", "emulator", "steam", "nintendo", "playstation")),
+    ("Graphics", (
+        "graphics", "image", "photo", "drawing", "svg", "render", "font",
+        "screenshot", "color", "gimp", "inkscape", "blender", "3d",
+    )),
+    ("Internet", (
+        "browser", "web", "http", "ftp", "mail", "email", "torrent", "chat",
+        "irc", "network", "vpn", "download", "ssh", "dns", "proxy",
+    )),
+    ("Multimedia", (
+        "audio", "video", "music", "sound", "player", "codec", "streaming",
+        "media", "ffmpeg", "podcast", "recorder", "volume",
+    )),
+    ("Office", (
+        "office", "document", "spreadsheet", "calendar", "note", "pdf",
+        "presentation", "accounting",
+    )),
+    ("Security", (
+        "encryption", "password", "firewall", "security", "gpg", "antivirus",
+        "crypt", "keyring", "signing", "audit",
+    )),
+    ("System", (
+        "kernel", "boot", "systemd", "filesystem", "firmware", "driver",
+        "daemon", "shell", "terminal", "partition", "disk", "storage",
+        "logging", "package manager", "pacman", "archive", "compression",
+        "process", "backup",
+    )),
+)
+
+_CATEGORY_PATTERNS = tuple(
+    (
+        category,
+        re.compile(
+            r"\b(?:%s)\b" % "|".join(re.escape(word) for word in words), re.IGNORECASE
+        ),
+    )
+    for category, words in CATEGORY_WORDS
+)
+
+
+def category_of(package) -> str:
+    """Which shelf a package belongs on, from its name and description."""
+    text = "%s %s" % (package.name, package.description)
+    for category, pattern in _CATEGORY_PATTERNS:
+        if pattern.search(text):
+            return category
+    return "Other"
+
+
+def group_by_category(packages) -> list:
+    """``[(category, [package, ...]), ...]`` in the order the window shows them.
+
+    A shelf with nothing on it is left out, so the list only has headings that
+    have packages under them.
+    """
+    shelves: dict = {name: [] for name in CATEGORIES}
+    for package in packages:
+        shelves[category_of(package)].append(package)
+    return [(name, shelves[name]) for name in CATEGORIES if shelves[name]]
 
 
 # --------------------------------------------------------------------------- #

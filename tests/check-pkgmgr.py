@@ -233,6 +233,91 @@ check("packageManager" in _source("installer/gui/pages.py"),
 check("if self.cfg.package_manager:" in _source("installer/orchestrator.py"),
       "the installation only adds it when the option is on")
 
+# -- results are shown by category ------------------------------------------
+check(
+    core.category_of(core.Package(
+        "vim",
+        description=(
+            "Vi Improved, a highly configurable, improved version of the vi "
+            "text editor"
+        ),
+    ))
+    == "Development",
+    "an editor is filed under Development",
+)
+check(
+    core.category_of(
+        core.Package("firefox", description="Standalone web browser from Mozilla")
+    )
+    == "Internet",
+    "a browser is filed under Internet",
+)
+check(
+    core.category_of(core.Package("gimp", description="GNU Image Manipulation Program"))
+    == "Graphics",
+    "an image program is filed under Graphics",
+)
+check(
+    core.category_of(
+        core.Package("vlc", description="Multi-platform MPEG, VCD/DVD, and DivX player")
+    )
+    == "Multimedia",
+    "a media player is filed under Multimedia",
+)
+check(
+    core.category_of(core.Package("linux", description="The Linux kernel and modules"))
+    == "System",
+    "a kernel is filed under System",
+)
+check(
+    core.category_of(
+        core.Package("xfce4-panel", description="Panel for the Xfce desktop environment")
+    )
+    == "Desktop",
+    "a panel for a desktop environment is filed under Desktop",
+)
+_codec = core.Package("thing", description="a codec")
+check(
+    core.category_of(_codec) == "Multimedia",
+    "a codec is not caught by the word code, which belongs to Development: %r"
+    % (core.category_of(_codec),),
+)
+check(
+    core.category_of(core.Package("mystery-package", description="")) == "Other",
+    "a package nothing describes is filed under Other",
+)
+check(
+    all(core.category_of(package) in core.CATEGORIES
+        for package in [repos[0], aur[0], installed[0]]),
+    "every package lands on a shelf the window shows",
+)
+
+_mixed = [
+    core.Package("mystery-package", description=""),
+    core.Package("firefox", description="Standalone web browser from Mozilla"),
+    core.Package("vim", description="text editor"),
+]
+_shelves = core.group_by_category(_mixed)
+check(
+    [name for name, _packages in _shelves] == ["Development", "Internet", "Other"],
+    "the shelves come in the order the window lists them: %r"
+    % ([name for name, _packages in _shelves],),
+)
+check(
+    sum(len(packages) for _name, packages in _shelves) == len(_mixed),
+    "grouping loses no package",
+)
+check(
+    [package.name for _name, packages in _shelves for package in packages]
+    == ["vim", "firefox", "mystery-package"],
+    "each package appears once, under its own shelf",
+)
+check(core.group_by_category([]) == [], "an empty result has no empty headings")
+check(
+    len(core.group_by_category([core.Package("firefox", description="web browser")])) == 1,
+    "only shelves that have packages under them are shown",
+)
+
 # -- the command line -------------------------------------------------------
 version = subprocess.run([sys.executable, "-m", "pkgmgr", "--version"],
                          capture_output=True, text=True, cwd=ROOT)

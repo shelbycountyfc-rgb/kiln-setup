@@ -14,6 +14,11 @@ DESKTOPS = {
         "Light and familiar, and already styled: Kiln's theme, wallpapers and "
         "panel rather than the grey default. Good on older machines.",
     ),
+    "xfce4": (
+        "Xfce (default look)",
+        "The same light desktop left exactly as Arch ships it: no Kiln theme, "
+        "wallpapers or panel. Pick this to style Xfce yourself.",
+    ),
     "cinnamon": ("Cinnamon", "Traditional layout with a taskbar and a menu."),
     "mate": ("MATE", "The classic GNOME 2 desktop, still maintained."),
     "lxqt": ("LXQt", "Very light Qt desktop for modest hardware."),
@@ -123,6 +128,11 @@ def desktop_packages(name: str) -> list:
             "xfce4", "xfce4-goodies", "lightdm", "lightdm-gtk-greeter",
             "materia-gtk-theme", "papirus-icon-theme",
         ],
+        # The same desktop without the Kiln look.  The theme and the icon set
+        # belong to the option above, and installer/xfce.py writes the panel
+        # and the wallpapers for it alone, so listing them here would leave a
+        # session styled by nothing but carrying the packages for it.
+        "xfce4": ["xfce4", "xfce4-goodies", "lightdm", "lightdm-gtk-greeter"],
         "cinnamon": ["cinnamon", "lightdm", "lightdm-gtk-greeter"],
         "mate": ["mate", "mate-extra", "lightdm", "lightdm-gtk-greeter"],
         "lxqt": ["lxqt", "sddm"],
@@ -233,6 +243,7 @@ def desktop_service(name: str) -> str:
         "kde": "sddm",
         "lxqt": "sddm",
         "xfce": "lightdm",
+        "xfce4": "lightdm",
         "cinnamon": "lightdm",
         "mate": "lightdm",
     }.get((name or "").lower(), "")

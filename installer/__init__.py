@@ -13,6 +13,6 @@ name and the disclaimer live in :mod:`installer.brand`.
 
 from . import brand
 
-__version__ = "1.3.0"
+__version__ = "1.3.1"
 
 APP_NAME = brand.PRODUCT_TITLE

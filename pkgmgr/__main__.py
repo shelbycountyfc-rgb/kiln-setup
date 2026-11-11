@@ -34,8 +34,12 @@ def search(text: str) -> int:
     if not rows:
         print("no package matches %r" % text, file=sys.stderr)
         return 1
-    for package in rows:
-        print("%-10s %-30s %s" % (package.origin, str(package), package.description))
+    # The same shelves the window shows, in the same order.
+    for category, packages in core.group_by_category(rows):
+        print("%s" % category)
+        for package in packages:
+            print("  %-10s %-30s %s"
+                  % (package.origin, str(package), package.description))
     return 0
 
 

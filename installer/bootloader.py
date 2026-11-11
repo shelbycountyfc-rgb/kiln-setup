@@ -679,10 +679,15 @@ def install_grub(ctx: Context, cfg: InstallConfig, layout: DiskPlan) -> None:
         _verify_efi_loader(ctx, cfg)
         _unmount_efivarfs(ctx)
     else:
-        # Legacy BIOS with an array: GRUB has to be on every member, or the
-        # machine only boots from the disk the firmware happens to pick.
-        for member in layout.members or []:
-            ctx.chroot("grub-install --target=i386-pc --recheck %s" % member.disk)
+        # Legacy BIOS: GRUB has to be written to the disk the firmware boots,
+        # and to every member of an array, or the machine only starts from the
+        # one the firmware happens to pick.  The disk itself is the fallback so
+        # an empty member list cannot skip this: grub-mkconfig would still
+        # write a grub.cfg, the installation would report success, and the
+        # machine would come up with no boot loader on it at all.
+        targets = [member.disk for member in layout.members or []] or [layout.disk]
+        for target in targets:
+            ctx.chroot("grub-install --target=i386-pc --recheck %s" % target)
     ctx.chroot("grub-mkconfig -o /boot/grub/grub.cfg")
     _fix_menu_titles(ctx)
     _verify_kernel(ctx, cfg)

@@ -46,6 +46,9 @@ class PackageManager:
         self.queue: queue.Queue = queue.Queue()
         self.busy = False
         self.rows: list = []
+        #: Tree item id -> Package, so a category heading selected on its own is
+        #: never mistaken for the package at some absolute row number.
+        self._by_item: dict = {}
         self.installed: list = []
         self.abilities = core.summary()
 
@@ -131,13 +134,20 @@ class PackageManager:
         table.pack(fill="both", expand=True, padx=28, pady=(12, 0))
         self.tree = ttk.Treeview(
             table, columns=[key for key, _label, _width in COLUMNS],
-            show="headings", selectmode="browse",
+            show="tree headings", selectmode="browse",
         )
+        # The tree column carries the category heading, so the list reads as
+        # shelves instead of one long run of packages.
+        self.tree.heading("#0", text="Category / package")
+        self.tree.column("#0", width=210, anchor="w", stretch=False)
         for key, label, width in COLUMNS:
             self.tree.heading(key, text=label)
             self.tree.column(key, width=width, anchor="w",
                              stretch=key == "description")
         self.tree.tag_configure("aur", foreground=theme.accent)
+        self.tree.tag_configure(
+            "category", foreground=theme.ink, font=theme.small_bold
+        )
         scroll = ttk.Scrollbar(table, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scroll.set)
         self.tree.pack(side="left", fill="both", expand=True)
@@ -331,25 +341,40 @@ class PackageManager:
     def _show(self, rows, scope: str, query: str) -> None:
         self.tree.delete(*self.tree.get_children())
         self.rows = list(rows)
-        for package in self.rows:
-            self.tree.insert(
-                "", "end",
-                values=(package.name, package.version, package.origin,
-                        package.description),
-                tags=("aur",) if package.aur else (),
+        self._by_item = {}
+        groups = core.group_by_category(self.rows)
+        for category, packages in groups:
+            shelf = self.tree.insert(
+                "", "end", text=category,
+                values=("", "", "", "%d package(s)" % len(packages)),
+                open=True, tags=("category",),
             )
+            for package in packages:
+                item = self.tree.insert(
+                    shelf, "end", text="",
+                    values=(package.name, package.version, package.origin,
+                            package.description),
+                    tags=("aur",) if package.aur else (),
+                )
+                self._by_item[item] = package
         what = query or "everything"
-        self._status("%d result(s) for %s in %s" % (len(self.rows), what, scope))
-        self._log("search: %d result(s) for %s in %s" % (len(self.rows), what, scope))
+        self._status("%d result(s) for %s in %s, in %d categories"
+                     % (len(self.rows), what, scope, len(groups)))
+        self._log(
+            "search: %d result(s) for %s in %s (%s)"
+            % (
+                len(self.rows), what, scope,
+                ", ".join("%s: %d" % (name, len(items)) for name, items in groups)
+                or "nothing found",
+            )
+        )
 
     def _selected(self):
         selection = self.tree.selection()
         if not selection:
             return None
-        index = self.tree.index(selection[0])
-        if 0 <= index < len(self.rows):
-            return self.rows[index]
-        return None
+        # A category heading is not a package, so it maps to nothing.
+        return self._by_item.get(selection[0])
 
     def _describe_selection(self) -> None:
         package = self._selected()

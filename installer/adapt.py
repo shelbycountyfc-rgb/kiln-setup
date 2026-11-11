@@ -99,7 +99,11 @@ def _desktop_note(hw) -> str:
     if desktop == "lxqt":
         return "LXQt, because %s of memory is too little for a full desktop." % memory
     if desktop == "xfce":
-        return "Xfce, because %s of memory is tight for a full desktop." % memory
+        # Both Xfce choices fit this much memory and they differ only in how
+        # they look, so the note names both instead of sending the machine to
+        # one of them and hiding the other.
+        looks = " or ".join(options.DESKTOPS[key][0] for key in ("xfce", "xfce4"))
+        return "%s: %s of memory is tight for a full desktop." % (looks, memory)
     return "KDE Plasma, which %s of memory handles comfortably." % memory
 
 

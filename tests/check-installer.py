@@ -487,6 +487,56 @@ check(any("arch.conf" in path for path in recorder.files),
       "systemd-boot still writes its loader entry")
 
 
+# -- GRUB on legacy BIOS is written to the disk, and never skipped -----------
+# The BIOS branch used to install GRUB only while looping over array members,
+# so a plain single-disk install could write a grub.cfg and boot nothing.
+bios_cfg = InstallConfig.from_dict({
+    "disk": "/dev/sda", "efi": False, "bootloader": "grub",
+    "mode": "erase", "confirm_erase": True,
+})
+
+
+def bios_grub_calls(plan):
+    recorder = Stub()
+    # The real Context always carries a hardware profile; this bare stub does not.
+    recorder.hardware = types.SimpleNamespace(cpu_vendor="")
+    # grub-mkconfig would have written this; install_grub refuses an empty one.
+    recorder.files["boot/grub/grub.cfg"] = (
+        'menuentry "Arch Linux" {\n  linux /boot/vmlinuz-linux root=UUID=abc rw\n}\n'
+    )
+    with mock.patch.object(bootloader, "_verify_kernel"):
+        bootloader.install_grub(recorder, bios_cfg, plan)
+    return [" ".join(call) for call in recorder.calls]
+
+
+solo = disk.plan_layout("/dev/sda", 64 * GIB, efi=False, mode="erase", swap=False)
+solo_calls = bios_grub_calls(solo)
+check(any("--target=i386-pc" in line and "/dev/sda" in line for line in solo_calls),
+      "a legacy BIOS install writes GRUB to the disk it installs on: %r" % (solo_calls,))
+check(any("--efi-directory" in line for line in solo_calls) is False,
+      "a legacy BIOS install does not use the EFI installer: %r" % (solo_calls,))
+check(any("grub-mkconfig" in line for line in solo_calls),
+      "the menu is generated after GRUB is written")
+
+memberless = disk.plan_layout("/dev/sda", 64 * GIB, efi=False, mode="erase", swap=False)
+memberless.members = []
+memberless_calls = bios_grub_calls(memberless)
+check(any("--target=i386-pc" in line and "/dev/sda" in line for line in memberless_calls),
+      "a plan that carries no member still gets GRUB on its disk: %r"
+      % (memberless_calls,))
+
+array = disk.plan_layout("/dev/sda", 64 * GIB, efi=False, mode="erase", swap=False)
+array.members = [
+    disk.MemberPlan(disk="/dev/sda", size=64 * GIB),
+    disk.MemberPlan(disk="/dev/sdb", size=64 * GIB),
+]
+array_calls = [line for line in bios_grub_calls(array) if "--target=i386-pc" in line]
+check(len(array_calls) == 2 and any("/dev/sda" in line for line in array_calls)
+      and any("/dev/sdb" in line for line in array_calls),
+      "every array member gets GRUB, so any of them can start the machine: %r"
+      % (array_calls,))
+
+
 
 # -- the Epic Games anti-cheat profile is not part of the installer ------------
 import re  # noqa: E402
@@ -766,6 +816,67 @@ check(
     "materia-gtk-theme" in xfce_packages and "papirus-icon-theme" in xfce_packages,
     "an Xfce install carries the theme and the icons it is told to use: %r"
     % (xfce_packages,),
+)
+
+# -- the stock Xfce choice sits beside the styled one, and stays unstyled ---
+stock_packages = options_module.desktop_packages("xfce4")
+check(
+    "xfce4" in stock_packages and "lightdm" in stock_packages,
+    "the default-look Xfce option still installs the desktop and a display "
+    "manager: %r" % (stock_packages,),
+)
+check(
+    "materia-gtk-theme" not in stock_packages
+    and "papirus-icon-theme" not in stock_packages,
+    "the default-look Xfce option leaves out the Kiln theme and icon set: %r"
+    % (stock_packages,),
+)
+check(
+    options_module.desktop_service("xfce4") == "lightdm",
+    "the default-look Xfce option starts the same display manager",
+)
+check(
+    "xfce" in options_module.DESKTOPS and "xfce4" in options_module.DESKTOPS,
+    "both Xfce choices are offered: the Kiln look and the stock one",
+)
+check(
+    options_module.DESKTOPS["xfce"][0] != options_module.DESKTOPS["xfce4"][0],
+    "the two Xfce choices are told apart in the menu: %r"
+    % ([options_module.DESKTOPS["xfce"][0], options_module.DESKTOPS["xfce4"][0]],),
+)
+_stock_written = xfce.apply(
+    Context(Logger(None), target=tempfile.mkdtemp(prefix="kiln-stock-xfce-")),
+    InstallConfig.from_dict({"desktop": "xfce4"}),
+)
+check(
+    _stock_written == [],
+    "a default-look Xfce install is not given the Kiln theme, panel or "
+    "wallpapers: %r" % (_stock_written,),
+)
+
+# -- a low-memory machine is told about both Xfce choices --------------------
+from installer import adapt as adapt_module  # noqa: E402
+
+_low = types.SimpleNamespace(ram_bytes=3 * GIB)
+_low_note = adapt_module._desktop_note(_low)
+check(
+    adapt_module._desktop(_low) == "xfce",
+    "a machine with 3 GiB is recommended Xfce: %r" % (adapt_module._desktop(_low),),
+)
+check(
+    options_module.DESKTOPS["xfce"][0] in _low_note
+    and options_module.DESKTOPS["xfce4"][0] in _low_note,
+    "the recommendation names both Xfce choices, not only the styled one: %r"
+    % (_low_note,),
+)
+check(
+    adapt_module._desktop(types.SimpleNamespace(ram_bytes=1 * GIB)) == "lxqt",
+    "the lean desktop is still what a 1 GiB machine gets",
+)
+check(
+    "both" not in adapt_module._desktop_note(types.SimpleNamespace(ram_bytes=16 * GIB)).lower(),
+    "a machine that can run anything is still pointed at one desktop: %r"
+    % (adapt_module._desktop_note(types.SimpleNamespace(ram_bytes=16 * GIB)),),
 )
 check(
     set(xfce.wallpapers()) >= set(xfce.WALLPAPERS),
