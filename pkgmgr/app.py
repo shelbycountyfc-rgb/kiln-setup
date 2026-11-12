@@ -347,7 +347,7 @@ class PackageManager:
             shelf = self.tree.insert(
                 "", "end", text=category,
                 values=("", "", "", "%d package(s)" % len(packages)),
-                open=True, tags=("category",),
+                open=False, tags=("category",),
             )
             for package in packages:
                 item = self.tree.insert(

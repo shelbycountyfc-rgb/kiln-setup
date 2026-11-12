@@ -318,6 +318,16 @@ check(
     "only shelves that have packages under them are shown",
 )
 
+_app = open(os.path.join(ROOT, "pkgmgr", "app.py"), encoding="utf-8").read()
+check(
+    'open=False, tags=("category",)' in _app,
+    "every shelf starts closed, so a search opens on headings, not a wall of rows",
+)
+check(
+    "open=True" not in _app,
+    "nothing in the package window forces a shelf open behind your back",
+)
+
 # -- the command line -------------------------------------------------------
 version = subprocess.run([sys.executable, "-m", "pkgmgr", "--version"],
                          capture_output=True, text=True, cwd=ROOT)
