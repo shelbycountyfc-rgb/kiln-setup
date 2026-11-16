@@ -4,7 +4,11 @@ A boot entry inside the ISO proves nothing: the kernel can panic, the squashfs
 can fail to mount, or the window can fail to start.  The framebuffer is read
 back through QEMU's monitor, so this runs on a runner without a display.
 
-Usage: python tests/boot-smoke.py <image.iso> [--bios|--uefi] [--wait 180]
+Usage: python tests/boot-smoke.py <image.iso> [--bios|--uefi] [--disk] [--wait 180]
+
+``--disk`` presents the image as a hard disk instead of a CD.  That is how
+firmware sees a USB stick, so it exercises the hybrid MBR and the isolinux
+volume boot record rather than the El Torito catalogue.
 """
 
 import argparse
@@ -51,6 +55,8 @@ def main(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument("image")
     parser.add_argument("--uefi", action="store_true")
+    parser.add_argument("--disk", action="store_true",
+                        help="present the image as a disk, the way a USB stick is seen")
     parser.add_argument("--wait", type=int, default=180)
     parser.add_argument("--minimum", type=float, default=0.05)
     args = parser.parse_args(argv[1:])
@@ -60,9 +66,13 @@ def main(argv):
     dump = os.path.join(work, "screen.ppm")
     command = [
         "qemu-system-x86_64", "-m", "3072", "-smp", "2",
-        "-cdrom", args.image, "-display", "none", "-vga", "std",
+        "-display", "none", "-vga", "std",
         "-no-reboot", "-monitor", "unix:%s,server=on,wait=off" % monitor,
     ]
+    if args.disk:
+        command += ["-drive", "file=%s,format=raw,media=disk,if=ide" % args.image]
+    else:
+        command += ["-cdrom", args.image]
     if args.uefi:
         firmware = next((path for path in OVMF if os.path.exists(path)), "")
         if not firmware:
@@ -73,7 +83,9 @@ def main(argv):
     process = subprocess.Popen(
         command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
     )
-    print("booting %s (%s)" % (args.image, "UEFI" if args.uefi else "BIOS"))
+    print("booting %s (%s, %s)"
+          % (args.image, "UEFI" if args.uefi else "BIOS",
+             "as a disk" if args.disk else "as a CD"))
     try:
         deadline = time.time() + args.wait
         while time.time() < deadline:
