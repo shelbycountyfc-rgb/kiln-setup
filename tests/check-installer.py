@@ -430,6 +430,15 @@ check("'uefi-x64.systemd-boot.eltorito'" in profile,
 check("'bios.syslinux'" in profile,
       "the profile declares the BIOS boot mode")
 
+# -- the live screen cannot blank halfway through pacstrap -------------------
+xinitrc = open("iso/profile/airootfs/root/.xinitrc", encoding="utf-8").read()
+check("xset s off" in xinitrc,
+      "the live session turns the screensaver off, so an idle install is not a black screen")
+check("-dpms" in xinitrc,
+      "the live session turns the DPMS power-off off as well")
+check("kiln-setup" in xinitrc,
+      "the installer is still what the session starts")
+
 
 # -- the ESP has to hold the loader a firmware entry names -------------------
 from installer import bootloader  # noqa: E402
